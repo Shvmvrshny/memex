@@ -75,3 +75,43 @@ func TestQdrantSaveMemory(t *testing.T) {
 		t.Errorf("got Text %q, want %q", mem.Text, req.Text)
 	}
 }
+
+func TestQdrantSearchMemories(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/collections/memories/points/scroll" {
+			resp := map[string]any{
+				"result": map[string]any{
+					"points": []map[string]any{{
+						"id": "test-id",
+						"payload": map[string]any{
+							"text":          "user prefers Python",
+							"project":       "memex",
+							"source":        "claude-code",
+							"importance":    0.8,
+							"tags":          []any{"preference"},
+							"timestamp":     "2026-04-06T10:00:00Z",
+							"last_accessed": "2026-04-06T10:00:00Z",
+						},
+					}},
+				},
+				"status": "ok",
+			}
+			json.NewEncoder(w).Encode(resp)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	store := NewQdrantStore(srv.URL)
+	memories, err := store.SearchMemories(context.Background(), "python language", "", 5)
+	if err != nil {
+		t.Fatalf("SearchMemories: %v", err)
+	}
+	if len(memories) != 1 {
+		t.Fatalf("got %d memories, want 1", len(memories))
+	}
+	if memories[0].Text != "user prefers Python" {
+		t.Errorf("got Text %q, want 'user prefers Python'", memories[0].Text)
+	}
+}
