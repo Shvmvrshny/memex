@@ -93,7 +93,49 @@ func (q *QdrantStore) put(ctx context.Context, path string, body interface{}) er
 }
 
 func (q *QdrantStore) SaveMemory(ctx context.Context, req SaveMemoryRequest) (Memory, error) {
-	return Memory{}, fmt.Errorf("not implemented")
+	id := uuid.New().String()
+	now := time.Now().UTC()
+
+	if req.Source == "" {
+		req.Source = "claude-code"
+	}
+	if req.Importance == 0 {
+		req.Importance = 0.5
+	}
+	if req.Tags == nil {
+		req.Tags = []string{}
+	}
+
+	body := map[string]any{
+		"points": []map[string]any{{
+			"id":     id,
+			"vector": []float32{0.0},
+			"payload": map[string]any{
+				"text":          req.Text,
+				"project":       req.Project,
+				"source":        req.Source,
+				"timestamp":     now.Format(time.RFC3339),
+				"importance":    req.Importance,
+				"tags":          req.Tags,
+				"last_accessed": now.Format(time.RFC3339),
+			},
+		}},
+	}
+
+	if err := q.put(ctx, "/collections/memories/points", body); err != nil {
+		return Memory{}, fmt.Errorf("upsert point: %w", err)
+	}
+
+	return Memory{
+		ID:           id,
+		Text:         req.Text,
+		Project:      req.Project,
+		Source:       req.Source,
+		Timestamp:    now,
+		Importance:   req.Importance,
+		Tags:         req.Tags,
+		LastAccessed: now,
+	}, nil
 }
 
 func (q *QdrantStore) SearchMemories(ctx context.Context, query, project string, limit int) ([]Memory, error) {
