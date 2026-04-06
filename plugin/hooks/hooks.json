@@ -1,0 +1,28 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "memex hook session-start",
+            "async": false
+          }
+        ]
+      }
+    ],
+    "SessionStop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "memex hook session-stop",
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}

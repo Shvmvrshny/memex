@@ -1,0 +1,14 @@
+{
+  "name": "memex",
+  "displayName": "Memex — Local AI Memory",
+  "description": "Local AI memory system. Remembers your preferences and context across sessions using Docker + Qdrant.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Shivam Varshney"
+  },
+  "repository": "https://github.com/shivamvarshney/memex",
+  "license": "MIT",
+  "keywords": ["memory", "context", "local", "qdrant"],
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json"
+}
