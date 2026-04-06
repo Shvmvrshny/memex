@@ -12,7 +12,7 @@ A local AI memory system for Claude Code. Remembers your preferences, decisions,
 
 - [Docker](https://www.docker.com/) (with Docker Compose)
 - [Go 1.22+](https://go.dev/)
-- [Claude Code](https://claude.ai/code)
+- [Claude Code](https://claude.ai/code) or [Cursor](https://www.cursor.com/)
 
 ## Installation
 
@@ -34,18 +34,32 @@ This starts two containers:
 - `memex` — HTTP API on port `8765`
 - `qdrant` — vector database on port `6333`
 
-**3. Register the MCP server with Claude Code**
+**3. Register the MCP server**
 
+**Claude Code:**
 ```bash
 claude mcp add --scope user memex ~/go/bin/memex mcp
 ```
 
-Restart Claude Code. The `save_memory`, `search_memory`, `list_memories`, and `delete_memory` tools will be available in every session.
+**Cursor:** Go to `Cursor Settings → MCP` and add:
+```json
+{
+  "mcpServers": {
+    "memex": {
+      "command": "/Users/your-username/go/bin/memex",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Restart your editor. The `save_memory`, `search_memory`, `list_memories`, and `delete_memory` tools will be available in every session.
 
 **4. (Optional) Add the session-start hook**
 
-To automatically inject memories at the start of each session, add this to your `~/.claude/settings.json`:
+Automatically injects relevant memories at the start of each session.
 
+**Claude Code** — add to `~/.claude/settings.json`:
 ```json
 {
   "hooks": {
@@ -62,6 +76,8 @@ To automatically inject memories at the start of each session, add this to your 
   }
 }
 ```
+
+**Cursor** — the hook is included in the `.cursor-plugin/` directory and runs automatically when the plugin is installed.
 
 ## MCP Tools
 

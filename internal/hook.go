@@ -74,24 +74,29 @@ func getProjectName() string {
 	return parts[len(parts)-1]
 }
 
+func isCursor() bool {
+	return os.Getenv("CURSOR_PLUGIN_ROOT") != ""
+}
+
 func outputContext(additionalContext string) {
-	output := map[string]any{
-		"hookSpecificOutput": map[string]any{
-			"hookEventName":     "SessionStart",
-			"additionalContext": additionalContext,
-		},
+	var output map[string]any
+	if isCursor() {
+		output = map[string]any{
+			"additional_context": additionalContext,
+		}
+	} else {
+		output = map[string]any{
+			"hookSpecificOutput": map[string]any{
+				"hookEventName":     "SessionStart",
+				"additionalContext": additionalContext,
+			},
+		}
 	}
 	json.NewEncoder(os.Stdout).Encode(output)
 }
 
 func outputOfflineWarning() {
-	output := map[string]any{
-		"hookSpecificOutput": map[string]any{
-			"hookEventName":     "SessionStart",
-			"additionalContext": "<memex> memory service offline — starting without memory context",
-		},
-	}
-	json.NewEncoder(os.Stdout).Encode(output)
+	outputContext("<memex> memory service offline — starting without memory context")
 }
 
 func outputEmpty() {
