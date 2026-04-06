@@ -32,9 +32,19 @@ Bad: `"uses sqlite"`
 
 Use `importance: 0.9` for strong preferences or decisions. Use `importance: 0.5` (default) for general context.
 
+## When the user updates a preference
+
+If the user changes something they previously told you (e.g. "actually I prefer bananas now"), always replace — not just add:
+
+1. Call `search_memory` to find the old memory
+2. Call `delete_memory` with its `id`
+3. Call `save_memory` with the new value
+
+Never leave the old and new versions both in memory — that causes confusion.
+
 ## When the user asks you to forget something
 
-Use `list_memories` to find the relevant memory, then inform the user that direct deletion is not yet supported in v1 — they can run `docker compose down -v && docker compose up -d` in the memex directory to reset all memories.
+Use `search_memory` or `list_memories` to find the relevant memory, then call `delete_memory` with its `id`.
 
 ## Memory at session start
 

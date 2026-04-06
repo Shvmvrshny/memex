@@ -45,6 +45,14 @@ func RunMCP() {
 		handleListMemories,
 	)
 
+	s.AddTool(
+		mcp.NewTool("delete_memory",
+			mcp.WithDescription("Delete a memory by ID. Use this when the user updates a preference or decision — search for the old memory first, delete it, then save the new one."),
+			mcp.WithString("id", mcp.Required(), mcp.Description("The ID of the memory to delete")),
+		),
+		handleDeleteMemory,
+	)
+
 	if err := server.ServeStdio(s); err != nil {
 		fmt.Fprintf(os.Stderr, "mcp server error: %v\n", err)
 		os.Exit(1)
@@ -119,4 +127,26 @@ func handleListMemories(ctx context.Context, req mcp.CallToolRequest) (*mcp.Call
 
 	data, _ := json.MarshalIndent(result.Memories, "", "  ")
 	return mcp.NewToolResultText(string(data)), nil
+}
+
+func handleDeleteMemory(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	id, _ := req.Params.Arguments["id"].(string)
+	if id == "" {
+		return mcp.NewToolResultError("id is required"), nil
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete,
+		fmt.Sprintf("%s/memories/%s", defaultMemexURL, url.PathEscape(id)), nil)
+	if err != nil {
+		return mcp.NewToolResultError("failed to create request"), nil
+	}
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return mcp.NewToolResultError("memex service unavailable — is Docker running?"), nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return mcp.NewToolResultError(fmt.Sprintf("delete failed: status %d", resp.StatusCode)), nil
+	}
+	return mcp.NewToolResultText(fmt.Sprintf("memory deleted (id: %s)", id)), nil
 }

@@ -45,6 +45,8 @@ func (m *mockStore) ListMemories(ctx context.Context, project string) ([]Memory,
 	return m.memories, m.err
 }
 
+func (m *mockStore) DeleteMemory(ctx context.Context, id string) error { return m.err }
+
 func TestHealthHandler_OK(t *testing.T) {
 	h := NewHandlers(&mockStore{})
 	r := httptest.NewRequest(http.MethodGet, "/health", nil)

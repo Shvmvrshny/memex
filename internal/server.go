@@ -18,6 +18,13 @@ func RunServe() {
 	h := NewHandlers(store)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", h.Health)
+	mux.HandleFunc("/memories/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			h.DeleteMemory(w, r)
+			return
+		}
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	})
 	mux.HandleFunc("/memories", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:

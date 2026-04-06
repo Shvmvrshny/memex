@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 type Handlers struct {
@@ -68,6 +69,19 @@ func (h *Handlers) SearchMemories(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(SearchResponse{Memories: memories})
+}
+
+func (h *Handlers) DeleteMemory(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/memories/")
+	if id == "" {
+		http.Error(w, `{"error":"id is required"}`, http.StatusBadRequest)
+		return
+	}
+	if err := h.store.DeleteMemory(r.Context(), id); err != nil {
+		http.Error(w, `{"error":"failed to delete memory"}`, http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handlers) Summarize(w http.ResponseWriter, r *http.Request) {

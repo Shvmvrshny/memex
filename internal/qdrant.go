@@ -245,3 +245,29 @@ func (q *QdrantStore) ListMemories(ctx context.Context, project string) ([]Memor
 	}
 	return q.scroll(ctx, body)
 }
+
+func (q *QdrantStore) DeleteMemory(ctx context.Context, id string) error {
+	body := map[string]any{
+		"points": []string{id},
+	}
+	data, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("marshal body: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		q.baseURL+"/collections/memories/points/delete", bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := q.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("delete request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("status %d: %s", resp.StatusCode, string(b))
+	}
+	return nil
+}
