@@ -1,0 +1,15 @@
+{
+  "name": "memex",
+  "displayName": "Memex — Local AI Memory",
+  "description": "Local AI memory system. Remembers your preferences, decisions, and context across sessions using a Go HTTP service and Qdrant running in Docker. Works with Claude Code and Cursor.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Shivam Varshney"
+  },
+  "homepage": "https://github.com/Shvmvrshny/memex",
+  "repository": "https://github.com/Shvmvrshny/memex",
+  "license": "MIT",
+  "keywords": ["memory", "context", "local", "qdrant", "docker", "persistence"],
+  "skills": "./plugin/skills/",
+  "hooks": "./plugin/hooks/hooks.json"
+}
