@@ -60,7 +60,7 @@ func (q *QdrantStore) Init(ctx context.Context) error {
 		"field_name":   "text",
 		"field_schema": "text",
 	}
-	if err := q.put(ctx, "/collections/memories/payload/index", indexBody); err != nil {
+	if err := q.put(ctx, "/collections/memories/index", indexBody); err != nil {
 		if !strings.Contains(err.Error(), "already exists") {
 			return fmt.Errorf("create payload index: %w", err)
 		}
