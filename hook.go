@@ -26,7 +26,7 @@ func runHook(event string) {
 
 func hookSessionStart() {
 	project := getProjectName()
-	context := fmt.Sprintf("working on project: %s", project)
+	context := project
 
 	// Silent fail if service is offline
 	resp, err := http.Get(defaultMemexURL + "/health")
