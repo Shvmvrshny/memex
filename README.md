@@ -40,7 +40,7 @@ This starts two containers:
 claude mcp add --scope user memex ~/go/bin/memex mcp
 ```
 
-Restart Claude Code. The `save_memory`, `search_memory`, and `list_memories` tools will be available in every session.
+Restart Claude Code. The `save_memory`, `search_memory`, `list_memories`, and `delete_memory` tools will be available in every session.
 
 **4. (Optional) Add the session-start hook**
 
@@ -70,6 +70,7 @@ To automatically inject memories at the start of each session, add this to your 
 | `save_memory` | Save a preference, decision, or piece of context |
 | `search_memory` | Search memories by keyword |
 | `list_memories` | List all stored memories |
+| `delete_memory` | Delete a memory by ID (use before saving an updated preference) |
 
 ## API
 
@@ -80,6 +81,7 @@ The HTTP service runs on `http://localhost:8765`.
 | `GET` | `/health` | Health check |
 | `POST` | `/memories` | Save a memory |
 | `GET` | `/memories?context=<query>` | Search memories |
+| `DELETE` | `/memories/:id` | Delete a memory by ID |
 | `POST` | `/summarize` | Save a session summary |
 
 ## Project structure
