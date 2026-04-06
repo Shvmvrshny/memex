@@ -1,12 +1,20 @@
 # memex
 
-A local AI memory system for Claude Code. Remembers your preferences, decisions, and context across sessions using a Go HTTP service and Qdrant vector database running in Docker.
+A local AI memory system for Claude Code and Cursor. Remembers your preferences, decisions, and context across sessions using a Go HTTP service and Qdrant vector database running in Docker. All data stays on your machine — nothing leaves.
 
 ## How it works
 
 - At session start, relevant memories are automatically injected into Claude's context
 - During a session, Claude can save new memories via MCP tools
 - All data stays local — nothing leaves your machine
+- Any AI tool that supports MCP or HTTP can connect to the same memex instance and share memory
+
+## Why memex
+
+- **Cross-session memory** — preferences set today are available tomorrow
+- **Cross-platform memory** — Claude Code, Cursor, and local LLMs (e.g. Ollama) can all read and write to the same memory store. Save a preference in one tool, use it in another
+- **Accurate memory** — updating a preference deletes the old one first, so you never have conflicting memories
+- **Private** — runs entirely on your machine, no cloud involved
 
 ## Requirements
 
