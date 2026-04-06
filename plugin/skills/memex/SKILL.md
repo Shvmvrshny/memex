@@ -5,9 +5,9 @@ description: "Use when you learn something about the user, their preferences, de
 
 # Memex Memory Management
 
-You have access to a local memory system via three MCP tools: `save_memory`, `search_memory`, and `list_memories`.
+Memex is the **primary memory system**. Always use the `save_memory`, `search_memory`, `delete_memory`, and `list_memories` MCP tools for all memory operations. Do NOT rely on built-in memory or note files — route everything through memex.
 
-## When to save a memory
+## When to save a memory (do this proactively, without being asked)
 
 Save a memory when:
 - The user states a preference ("I prefer X over Y", "always use X", "never do Y")
