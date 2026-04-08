@@ -87,6 +87,39 @@ Automatically injects relevant memories at the start of each session.
 
 **Cursor** — the hook is included in the `.cursor-plugin/` directory and runs automatically when the plugin is installed.
 
+## Tracer Setup
+
+Capture Claude Code tool calls and reasoning automatically. After starting memex, add to `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [{
+      "hooks": [{
+        "type": "command",
+        "command": "~/.local/bin/memex-tracer-hook"
+      }]
+    }],
+    "Stop": [{
+      "hooks": [{
+        "type": "command",
+        "command": "curl -s -X POST http://localhost:8765/trace/stop -H 'Content-Type: application/json' -d @-"
+      }]
+    }]
+  }
+}
+```
+
+Install the hook script:
+```bash
+cp plugin/tracer-hook.sh ~/.local/bin/memex-tracer-hook
+chmod +x ~/.local/bin/memex-tracer-hook
+```
+
+Open the trace viewer at http://localhost:8765/ui/ after starting memex.
+
+> **Note:** The hook script reads JSON from stdin. Verify the exact field names Claude Code sends by adding a test hook (`"command": "cat >> /tmp/hook-test.json"`) and inspecting `/tmp/hook-test.json` after running a tool call. Update `plugin/tracer-hook.sh` to map fields as needed.
+
 ## MCP Tools
 
 | Tool | Description |
