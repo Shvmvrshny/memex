@@ -6,6 +6,7 @@ A local AI memory system for Claude Code and Cursor. Remembers your preferences,
 
 - At session start, relevant memories are automatically injected into Claude's context
 - During a session, Claude can save new memories via MCP tools
+- Every tool call is automatically traced — captured with input, output, duration, and reasoning
 - All data stays local — nothing leaves your machine
 - Any AI tool that supports MCP or HTTP can connect to the same memex instance and share memory
 
@@ -14,6 +15,7 @@ A local AI memory system for Claude Code and Cursor. Remembers your preferences,
 - **Cross-session memory** — preferences set today are available tomorrow
 - **Cross-platform memory** — Claude Code, Cursor, and local LLMs (e.g. Ollama) can all read and write to the same memory store. Save a preference in one tool, use it in another
 - **Accurate memory** — updating a preference deletes the old one first, so you never have conflicting memories
+- **Session tracer** — replay any past session: see every tool call, what it did, how long it took, and Claude's reasoning behind it
 - **Private** — runs entirely on your machine, no cloud involved
 
 ## Requirements
@@ -63,62 +65,39 @@ claude mcp add --scope user memex ~/go/bin/memex mcp
 
 Restart your editor. The `save_memory`, `search_memory`, `list_memories`, and `delete_memory` tools will be available in every session.
 
-**4. (Optional) Add the session-start hook**
+**4. (Optional) Add hooks**
 
-Automatically injects relevant memories at the start of each session.
+Hooks enable automatic memory injection at session start and full session tracing.
 
 **Claude Code** — add to `~/.claude/settings.json`:
 ```json
 {
   "hooks": {
     "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "memex hook session-start"
-          }
-        ]
-      }
+      { "hooks": [{ "type": "command", "command": "memex hook session-start" }] }
+    ],
+    "SessionStop": [
+      { "hooks": [{ "type": "command", "command": "memex hook session-stop", "async": true }] }
+    ],
+    "PreToolUse": [
+      { "hooks": [{ "type": "command", "command": "memex hook pre-tool-use", "async": true }] }
+    ],
+    "PostToolUse": [
+      { "hooks": [{ "type": "command", "command": "memex hook post-tool-use", "async": true }] }
     ]
   }
 }
 ```
 
+- `SessionStart` — injects relevant memories into context at the start of each session
+- `PreToolUse` / `PostToolUse` — traces every tool call with input, output, and duration
+- `SessionStop` — finalises the session trace and backfills Claude's reasoning from the transcript
+
 **Cursor** — the hook is included in the `.cursor-plugin/` directory and runs automatically when the plugin is installed.
 
-## Tracer Setup
+**5. (Optional) Open the tracer UI**
 
-Capture Claude Code tool calls and reasoning automatically. After starting memex, add to `~/.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "PostToolUse": [{
-      "hooks": [{
-        "type": "command",
-        "command": "~/.local/bin/memex-tracer-hook"
-      }]
-    }],
-    "Stop": [{
-      "hooks": [{
-        "type": "command",
-        "command": "curl -s -X POST http://localhost:8765/trace/stop -H 'Content-Type: application/json' -d @-"
-      }]
-    }]
-  }
-}
-```
-
-Install the hook script:
-```bash
-cp plugin/tracer-hook.sh ~/.local/bin/memex-tracer-hook
-chmod +x ~/.local/bin/memex-tracer-hook
-```
-
-Open the trace viewer at http://localhost:8765/ui/ after starting memex.
-
-> **Note:** The hook script reads JSON from stdin. Verify the exact field names Claude Code sends by adding a test hook (`"command": "cat >> /tmp/hook-test.json"`) and inspecting `/tmp/hook-test.json` after running a tool call. Update `plugin/tracer-hook.sh` to map fields as needed.
+After enabling the hooks and running a session, open `http://localhost:8765/ui/` to browse past sessions by project and replay every tool call in order.
 
 ## MCP Tools
 
@@ -133,6 +112,8 @@ Open the trace viewer at http://localhost:8765/ui/ after starting memex.
 
 The HTTP service runs on `http://localhost:8765`.
 
+**Memory**
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/health` | Health check |
@@ -140,6 +121,17 @@ The HTTP service runs on `http://localhost:8765`.
 | `GET` | `/memories?context=<query>` | Search memories |
 | `DELETE` | `/memories/:id` | Delete a memory by ID |
 | `POST` | `/summarize` | Save a session summary |
+
+**Tracer**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/trace/event` | Record a tool call event |
+| `POST` | `/trace/stop` | Finalise a session (backfills reasoning from transcript) |
+| `GET` | `/trace/projects` | List all traced projects |
+| `GET` | `/trace/sessions?project=<name>` | List sessions for a project |
+| `GET` | `/trace/session/:id` | Get all events for a session |
+| `POST` | `/checkpoint` | Save a session summary as a high-importance memory |
 
 ## Project structure
 
@@ -152,12 +144,18 @@ memex/
 │   ├── config.go         # env config
 │   ├── models.go         # Memory, SaveMemoryRequest, SearchResponse
 │   ├── store.go          # Store interface
-│   ├── qdrant.go         # Qdrant REST client
-│   ├── handlers.go       # HTTP handlers
+│   ├── qdrant.go         # Qdrant REST client (memory collection)
+│   ├── handlers.go       # HTTP handlers (memory)
+│   ├── tracer_models.go  # TraceEvent, Session, TraceEventRequest
+│   ├── tracer.go         # TraceStore — Qdrant ops for traces collection
+│   ├── tracer_handlers.go# HTTP handlers (tracer)
+│   ├── transcript.go     # Claude transcript parser (reasoning backfill)
+│   ├── distill.go        # session summary distillation
 │   ├── server.go         # HTTP server setup
-│   ├── hook.go           # session-start/stop hook logic
+│   ├── hook.go           # hook logic (session-start/stop, pre/post-tool-use)
 │   └── mcp.go            # MCP stdio server
-├── plugin/               # Claude Code plugin manifest and skill
+├── ui/                   # React tracer UI (Vite)
+├── plugin/               # Claude Code plugin manifest and skills
 ├── Dockerfile
 └── docker-compose.yml
 ```
