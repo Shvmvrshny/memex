@@ -76,7 +76,7 @@ Hooks enable automatic memory injection at session start and full session tracin
     "SessionStart": [
       { "hooks": [{ "type": "command", "command": "memex hook session-start" }] }
     ],
-    "SessionStop": [
+    "SessionEnd": [
       { "hooks": [{ "type": "command", "command": "memex hook session-stop", "async": true }] }
     ],
     "PreToolUse": [
@@ -91,7 +91,7 @@ Hooks enable automatic memory injection at session start and full session tracin
 
 - `SessionStart` — injects relevant memories into context at the start of each session
 - `PreToolUse` / `PostToolUse` — traces every tool call with input, output, and duration
-- `SessionStop` — finalises the session trace and backfills Claude's reasoning from the transcript
+- `SessionEnd` — finalises the session trace and backfills Claude's reasoning from the transcript
 
 **Cursor** — the hook is included in the `.cursor-plugin/` directory and runs automatically when the plugin is installed.
 
