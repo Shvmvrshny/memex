@@ -9,7 +9,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "Usage: memex <serve|mcp|hook <session-start|session-stop>>")
+		fmt.Fprintln(os.Stderr, "Usage: memex <serve|mcp|hook <session-start|session-stop|pre-tool-use|post-tool-use>>")
 		os.Exit(1)
 	}
 
@@ -20,7 +20,7 @@ func main() {
 		memex.RunMCP()
 	case "hook":
 		if len(os.Args) < 3 {
-			fmt.Fprintln(os.Stderr, "Usage: memex hook <session-start|session-stop>")
+			fmt.Fprintln(os.Stderr, "Usage: memex hook <session-start|session-stop|pre-tool-use|post-tool-use>")
 			os.Exit(1)
 		}
 		memex.RunHook(os.Args[2])

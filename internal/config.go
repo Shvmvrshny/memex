@@ -4,6 +4,13 @@ import "os"
 
 const defaultMemexURL = "http://localhost:8765"
 
+func getMemexURL() string {
+	if u := os.Getenv("MEMEX_URL"); u != "" {
+		return u
+	}
+	return defaultMemexURL
+}
+
 type Config struct {
 	Port      string
 	QdrantURL string

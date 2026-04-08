@@ -81,7 +81,7 @@ func RunServe() {
 		}
 		th.GetSession(w, r)
 	})
-	mux.HandleFunc("/projects", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/trace/projects", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return

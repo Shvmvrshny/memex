@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+memex hook post-tool-use
