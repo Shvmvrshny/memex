@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -94,16 +95,12 @@ func (t *TraceStore) SaveEvent(ctx context.Context, req TraceEventRequest) (Trac
 // UpsertReasoning updates an existing trace event point with reasoning text.
 func (t *TraceStore) UpsertReasoning(ctx context.Context, eventID, sessionID, reasoning string) error {
 	body := map[string]any{
-		"points": []map[string]any{{
-			"id":     eventID,
-			"vector": []float32{0.0},
-			"payload": map[string]any{
-				"session_id": sessionID,
-				"reasoning":  reasoning,
-			},
-		}},
+		"payload": map[string]any{
+			"reasoning": reasoning,
+		},
+		"points": []string{eventID},
 	}
-	return t.put(ctx, "/collections/traces/points", body)
+	return t.post(ctx, "/collections/traces/points/payload", body)
 }
 
 func (t *TraceStore) ListSessions(ctx context.Context, project string) ([]Session, error) {
@@ -172,19 +169,22 @@ func eventsToSessions(events []TraceEvent) []Session {
 	acc := map[string]*sessionAcc{}
 	for _, e := range events {
 		if _, ok := acc[e.SessionID]; !ok {
-			acc[e.SessionID] = &sessionAcc{
-				session: Session{
-					SessionID: e.SessionID,
-					Project:   e.Project,
-					StartTime: e.Timestamp,
-					Skill:     e.Skill,
-				},
+			s := Session{
+				SessionID: e.SessionID,
+				Project:   e.Project,
+				Skill:     e.Skill,
 			}
+			if !e.Timestamp.IsZero() {
+				s.StartTime = e.Timestamp
+			}
+			acc[e.SessionID] = &sessionAcc{session: s}
 		}
 		a := acc[e.SessionID]
 		a.count++
-		if e.Timestamp.Before(a.session.StartTime) {
-			a.session.StartTime = e.Timestamp
+		if !e.Timestamp.IsZero() {
+			if a.session.StartTime.IsZero() || e.Timestamp.Before(a.session.StartTime) {
+				a.session.StartTime = e.Timestamp
+			}
 		}
 	}
 	sessions := make([]Session, 0, len(acc))
@@ -267,9 +267,31 @@ func (t *TraceStore) put(ctx context.Context, path string, body interface{}) err
 	return nil
 }
 
+func (t *TraceStore) post(ctx context.Context, path string, body interface{}) error {
+	data, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("marshal body: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.baseURL+path, bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := t.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("do request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("status %d: %s", resp.StatusCode, string(b))
+	}
+	return nil
+}
+
 func isAlreadyExists(err error) bool {
 	if err == nil {
 		return false
 	}
-	return bytes.Contains([]byte(err.Error()), []byte("already exists"))
+	return strings.Contains(err.Error(), "already exists")
 }

@@ -57,7 +57,7 @@ func TestTraceStoreSaveEvent(t *testing.T) {
 func TestTraceStoreUpsertReasoning(t *testing.T) {
 	called := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/collections/traces/points" && r.Method == http.MethodPut {
+		if r.URL.Path == "/collections/traces/points/payload" && r.Method == http.MethodPost {
 			called = true
 			json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 			return
@@ -72,7 +72,7 @@ func TestTraceStoreUpsertReasoning(t *testing.T) {
 		t.Fatalf("UpsertReasoning: %v", err)
 	}
 	if !called {
-		t.Error("expected PUT /collections/traces/points to be called")
+		t.Error("expected POST /collections/traces/points/payload to be called")
 	}
 }
 
