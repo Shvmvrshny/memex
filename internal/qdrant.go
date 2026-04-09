@@ -163,27 +163,11 @@ func (q *QdrantStore) SaveMemory(ctx context.Context, req SaveMemoryRequest) (Me
 	}, nil
 }
 
-func (q *QdrantStore) SearchMemories(ctx context.Context, query, project, memoryType, topic string, limit int) ([]Memory, error) {
-	if limit <= 0 {
-		limit = 5
-	}
-
-	vector, err := q.embed(ctx, query)
+func (q *QdrantStore) vectorSearch(ctx context.Context, body map[string]any) ([]Memory, error) {
+	data, err := json.Marshal(body)
 	if err != nil {
-		return q.ListMemories(ctx, project, memoryType, topic, limit)
+		return nil, fmt.Errorf("marshal search body: %w", err)
 	}
-
-	body := map[string]any{
-		"vector":       vector,
-		"limit":        limit,
-		"with_payload": true,
-		"with_vector":  false,
-	}
-	if f := buildFilter(project, memoryType, topic); f != nil {
-		body["filter"] = f
-	}
-
-	data, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		q.baseURL+"/collections/memories/points/search", bytes.NewReader(data))
 	if err != nil {
@@ -215,6 +199,27 @@ func (q *QdrantStore) SearchMemories(ctx context.Context, query, project, memory
 		points[i].Payload = r.Payload
 	}
 	return pointsToMemories(points), nil
+}
+
+func (q *QdrantStore) SearchMemories(ctx context.Context, query, project, memoryType, topic string, limit int) ([]Memory, error) {
+	if limit <= 0 {
+		limit = 5
+	}
+	vector, err := q.embed(ctx, query)
+	if err != nil {
+		log.Printf("memex: embed fallback in SearchMemories: %v", err)
+		return q.ListMemories(ctx, project, memoryType, topic, limit)
+	}
+	body := map[string]any{
+		"vector":       vector,
+		"limit":        limit,
+		"with_payload": true,
+		"with_vector":  false,
+	}
+	if f := buildFilter(project, memoryType, topic); f != nil {
+		body["filter"] = f
+	}
+	return q.vectorSearch(ctx, body)
 }
 
 func (q *QdrantStore) ListMemories(ctx context.Context, project, memoryType, topic string, limit int) ([]Memory, error) {
@@ -293,7 +298,6 @@ func (q *QdrantStore) FindSimilar(ctx context.Context, text, project string, lim
 	if err != nil {
 		return nil, fmt.Errorf("embed for similarity: %w", err)
 	}
-
 	body := map[string]any{
 		"vector":       vector,
 		"limit":        limit,
@@ -307,39 +311,7 @@ func (q *QdrantStore) FindSimilar(ctx context.Context, text, project string, lim
 			},
 		}
 	}
-
-	data, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		q.baseURL+"/collections/memories/points/search", bytes.NewReader(data))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := q.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var result struct {
-		Result []struct {
-			ID      string         `json:"id"`
-			Payload map[string]any `json:"payload"`
-		} `json:"result"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode find-similar response: %w", err)
-	}
-
-	points := make([]struct {
-		ID      string         `json:"id"`
-		Payload map[string]any `json:"payload"`
-	}, len(result.Result))
-	for i, r := range result.Result {
-		points[i].ID = r.ID
-		points[i].Payload = r.Payload
-	}
-	return pointsToMemories(points), nil
+	return q.vectorSearch(ctx, body)
 }
 
 func (q *QdrantStore) DeleteMemory(ctx context.Context, id string) error {
@@ -452,10 +424,18 @@ func pointsToMemories(points []struct {
 			m.Importance = float32(v)
 		}
 		if v, ok := p.Payload["timestamp"].(string); ok {
-			m.Timestamp, _ = time.Parse(time.RFC3339, v)
+			if t, err := time.Parse(time.RFC3339, v); err == nil {
+				m.Timestamp = t
+			} else {
+				log.Printf("memex: parse timestamp %q: %v", v, err)
+			}
 		}
 		if v, ok := p.Payload["last_accessed"].(string); ok {
-			m.LastAccessed, _ = time.Parse(time.RFC3339, v)
+			if t, err := time.Parse(time.RFC3339, v); err == nil {
+				m.LastAccessed = t
+			} else {
+				log.Printf("memex: parse last_accessed %q: %v", v, err)
+			}
 		}
 		if v, ok := p.Payload["tags"].([]any); ok {
 			for _, t := range v {

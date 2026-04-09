@@ -49,7 +49,9 @@ func TestQdrantHealth_Down(t *testing.T) {
 }
 
 func TestQdrantInit(t *testing.T) {
+	var paths []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.Method+":"+r.URL.Path)
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	}))
 	defer srv.Close()
@@ -57,6 +59,16 @@ func TestQdrantInit(t *testing.T) {
 	store := NewQdrantStore(srv.URL, "")
 	if err := store.Init(context.Background()); err != nil {
 		t.Fatalf("Init failed: %v", err)
+	}
+
+	// Should have sent: PUT /collections/memories + 4x PUT /collections/memories/index
+	if len(paths) < 5 {
+		t.Errorf("expected at least 5 requests (1 collection + 4 indexes), got %d: %v", len(paths), paths)
+	}
+	for _, p := range paths {
+		if p[:3] != "PUT" {
+			t.Errorf("expected all PUT requests, got %q", p)
+		}
 	}
 }
 
