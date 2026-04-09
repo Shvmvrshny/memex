@@ -129,9 +129,11 @@ func (h *TraceHandlers) Checkpoint(w http.ResponseWriter, r *http.Request) {
 	mem, err := h.store.SaveMemory(r.Context(), SaveMemoryRequest{
 		Text:       req.Summary,
 		Project:    req.Project,
+		Topic:      "checkpoint",
+		MemoryType: "event",
 		Source:     "claude-code",
 		Importance: 0.9,
-		Tags:       []string{"checkpoint", req.Project},
+		Tags:       []string{"checkpoint"},
 	})
 	if err != nil {
 		http.Error(w, `{"error":"failed to save checkpoint"}`, http.StatusInternalServerError)

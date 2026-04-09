@@ -25,15 +25,24 @@ func RunServe() {
 
 	mux := http.NewServeMux()
 
-	// Existing memory routes
 	mux.HandleFunc("/health", h.Health)
+
 	mux.HandleFunc("/memories/", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodDelete {
+		path := strings.TrimPrefix(r.URL.Path, "/memories/")
+		switch {
+		case path == "pinned" && r.Method == http.MethodGet:
+			h.PinnedMemories(w, r)
+		case path == "similar" && r.Method == http.MethodGet:
+			h.FindSimilar(w, r)
+		case strings.HasSuffix(path, "/pin") && r.Method == http.MethodPatch:
+			h.PinMemory(w, r)
+		case r.Method == http.MethodDelete:
 			h.DeleteMemory(w, r)
-			return
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	})
+
 	mux.HandleFunc("/memories", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -44,6 +53,7 @@ func RunServe() {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
+
 	mux.HandleFunc("/summarize", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -52,7 +62,6 @@ func RunServe() {
 		h.Summarize(w, r)
 	})
 
-	// Trace routes
 	mux.HandleFunc("/trace/event", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -96,7 +105,6 @@ func RunServe() {
 		th.Checkpoint(w, r)
 	})
 
-	// Serve UI static files
 	mux.HandleFunc("/ui/", func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/ui")
 		if path == "" || path == "/" {
