@@ -37,11 +37,21 @@ func (m *mockStore) SaveMemory(ctx context.Context, req SaveMemoryRequest) (Memo
 	return mem, nil
 }
 
-func (m *mockStore) SearchMemories(ctx context.Context, query, project string, limit int) ([]Memory, error) {
+func (m *mockStore) SearchMemories(ctx context.Context, query, project, memoryType, topic string, limit int) ([]Memory, error) {
 	return m.memories, m.err
 }
 
-func (m *mockStore) ListMemories(ctx context.Context, project string) ([]Memory, error) {
+func (m *mockStore) ListMemories(ctx context.Context, project, memoryType, topic string, limit int) ([]Memory, error) {
+	return m.memories, m.err
+}
+
+func (m *mockStore) PinnedMemories(ctx context.Context, project string) ([]Memory, error) {
+	return m.memories, m.err
+}
+
+func (m *mockStore) PinMemory(ctx context.Context, id string) error { return m.err }
+
+func (m *mockStore) FindSimilar(ctx context.Context, text, project string, limit int) ([]Memory, error) {
 	return m.memories, m.err
 }
 

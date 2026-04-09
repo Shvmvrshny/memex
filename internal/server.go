@@ -9,7 +9,7 @@ import (
 
 func RunServe() {
 	cfg := LoadConfig()
-	store := NewQdrantStore(cfg.QdrantURL)
+	store := NewQdrantStore(cfg.QdrantURL, cfg.OllamaURL)
 	traceStore := NewTraceStore(cfg.QdrantURL)
 
 	ctx := context.Background()
