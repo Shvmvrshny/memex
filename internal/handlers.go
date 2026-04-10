@@ -15,6 +15,12 @@ func NewHandlers(store Store) *Handlers {
 	return &Handlers{store: store}
 }
 
+func writeJSONError(w http.ResponseWriter, msg string, code int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
 func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
 	if err := h.store.Health(r.Context()); err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -29,21 +35,21 @@ func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) SaveMemory(w http.ResponseWriter, r *http.Request) {
 	var req SaveMemoryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		writeJSONError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Text == "" {
-		http.Error(w, `{"error":"text is required"}`, http.StatusBadRequest)
+		writeJSONError(w, "text is required", http.StatusBadRequest)
 		return
 	}
 	if !ValidMemoryTypes[req.MemoryType] {
-		http.Error(w, `{"error":"memory_type is required and must be one of: decision, preference, event, discovery, advice, problem, context, procedure, rationale"}`, http.StatusBadRequest)
+		writeJSONError(w, "memory_type is required and must be one of: decision, preference, event, discovery, advice, problem, context, procedure, rationale", http.StatusBadRequest)
 		return
 	}
 
 	memory, err := h.store.SaveMemory(r.Context(), req)
 	if err != nil {
-		http.Error(w, `{"error":"failed to save memory"}`, http.StatusInternalServerError)
+		writeJSONError(w, "failed to save memory", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -73,7 +79,7 @@ func (h *Handlers) SearchMemories(w http.ResponseWriter, r *http.Request) {
 		memories, err = h.store.SearchMemories(r.Context(), query, project, memoryType, topic, limit)
 	}
 	if err != nil {
-		http.Error(w, `{"error":"search failed"}`, http.StatusInternalServerError)
+		writeJSONError(w, "search failed", http.StatusInternalServerError)
 		return
 	}
 	if memories == nil {
@@ -86,11 +92,11 @@ func (h *Handlers) SearchMemories(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) DeleteMemory(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/memories/")
 	if id == "" {
-		http.Error(w, `{"error":"id is required"}`, http.StatusBadRequest)
+		writeJSONError(w, "id is required", http.StatusBadRequest)
 		return
 	}
 	if err := h.store.DeleteMemory(r.Context(), id); err != nil {
-		http.Error(w, `{"error":"failed to delete memory"}`, http.StatusInternalServerError)
+		writeJSONError(w, "failed to delete memory", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -99,11 +105,11 @@ func (h *Handlers) DeleteMemory(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) Summarize(w http.ResponseWriter, r *http.Request) {
 	var req SaveMemoryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		writeJSONError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 	if req.Text == "" {
-		http.Error(w, `{"error":"text is required"}`, http.StatusBadRequest)
+		writeJSONError(w, "text is required", http.StatusBadRequest)
 		return
 	}
 
@@ -116,7 +122,7 @@ func (h *Handlers) Summarize(w http.ResponseWriter, r *http.Request) {
 
 	memory, err := h.store.SaveMemory(r.Context(), req)
 	if err != nil {
-		http.Error(w, `{"error":"failed to save summary"}`, http.StatusInternalServerError)
+		writeJSONError(w, "failed to save summary", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -129,12 +135,12 @@ func (h *Handlers) Summarize(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) PinnedMemories(w http.ResponseWriter, r *http.Request) {
 	project := r.URL.Query().Get("project")
 	if project == "" {
-		http.Error(w, `{"error":"project is required"}`, http.StatusBadRequest)
+		writeJSONError(w, "project is required", http.StatusBadRequest)
 		return
 	}
 	memories, err := h.store.PinnedMemories(r.Context(), project)
 	if err != nil {
-		http.Error(w, `{"error":"failed to fetch pinned memories"}`, http.StatusInternalServerError)
+		writeJSONError(w, "failed to fetch pinned memories", http.StatusInternalServerError)
 		return
 	}
 	if memories == nil {
@@ -150,11 +156,11 @@ func (h *Handlers) PinMemory(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/memories/")
 	id := strings.TrimSuffix(path, "/pin")
 	if id == "" {
-		http.Error(w, `{"error":"id is required"}`, http.StatusBadRequest)
+		writeJSONError(w, "id is required", http.StatusBadRequest)
 		return
 	}
 	if err := h.store.PinMemory(r.Context(), id); err != nil {
-		http.Error(w, `{"error":"failed to pin memory"}`, http.StatusInternalServerError)
+		writeJSONError(w, "failed to pin memory", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -165,7 +171,7 @@ func (h *Handlers) PinMemory(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) FindSimilar(w http.ResponseWriter, r *http.Request) {
 	text := r.URL.Query().Get("text")
 	if text == "" {
-		http.Error(w, `{"error":"text is required"}`, http.StatusBadRequest)
+		writeJSONError(w, "text is required", http.StatusBadRequest)
 		return
 	}
 	project := r.URL.Query().Get("project")
@@ -177,7 +183,7 @@ func (h *Handlers) FindSimilar(w http.ResponseWriter, r *http.Request) {
 	}
 	memories, err := h.store.FindSimilar(r.Context(), text, project, limit)
 	if err != nil {
-		http.Error(w, `{"error":"similarity search failed"}`, http.StatusInternalServerError)
+		writeJSONError(w, "similarity search failed", http.StatusInternalServerError)
 		return
 	}
 	if memories == nil {
