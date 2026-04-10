@@ -12,6 +12,11 @@ func RunServe() {
 	store := NewQdrantStore(cfg.QdrantURL, cfg.OllamaURL)
 	traceStore := NewTraceStore(cfg.QdrantURL)
 
+	kg, err := NewKnowledgeGraph(cfg.KGPath)
+	if err != nil {
+		log.Fatalf("init knowledge graph: %v", err)
+	}
+
 	ctx := context.Background()
 	if err := store.Init(ctx); err != nil {
 		log.Fatalf("init memory store: %v", err)
@@ -19,14 +24,18 @@ func RunServe() {
 	if err := traceStore.Init(ctx); err != nil {
 		log.Fatalf("init trace store: %v", err)
 	}
+	if err := kg.Init(); err != nil {
+		log.Fatalf("init knowledge graph schema: %v", err)
+	}
 
 	h := NewHandlers(store)
 	th := NewTraceHandlers(store, traceStore)
+	kgh := NewKGHandlers(kg)
 
 	mux := http.NewServeMux()
 
+	// Memory routes
 	mux.HandleFunc("/health", h.Health)
-
 	mux.HandleFunc("/memories/", func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/memories/")
 		switch {
@@ -42,7 +51,6 @@ func RunServe() {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
-
 	mux.HandleFunc("/memories", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -53,7 +61,6 @@ func RunServe() {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
-
 	mux.HandleFunc("/summarize", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -62,6 +69,41 @@ func RunServe() {
 		h.Summarize(w, r)
 	})
 
+	// Knowledge Graph routes
+	mux.HandleFunc("/facts/stats", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		kgh.Stats(w, r)
+	})
+	mux.HandleFunc("/facts/timeline", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		kgh.History(w, r)
+	})
+	mux.HandleFunc("/facts/", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodDelete:
+			kgh.ExpireFact(w, r)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+	mux.HandleFunc("/facts", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			kgh.RecordFact(w, r)
+		case http.MethodGet:
+			kgh.QueryEntity(w, r)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	// Trace routes
 	mux.HandleFunc("/trace/event", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -105,6 +147,7 @@ func RunServe() {
 		th.Checkpoint(w, r)
 	})
 
+	// Serve UI static files
 	mux.HandleFunc("/ui/", func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/ui")
 		if path == "" || path == "/" {
