@@ -1,6 +1,9 @@
 package memex
 
-import "os"
+import (
+	"os"
+	"path/filepath"
+)
 
 const defaultMemexURL = "http://localhost:8765"
 
@@ -12,8 +15,11 @@ func getMemexURL() string {
 }
 
 type Config struct {
-	Port      string
-	QdrantURL string
+	Port         string
+	QdrantURL    string
+	OllamaURL    string
+	IdentityPath string // ~/.memex/identity.md — L0 identity text
+	KGPath       string // ~/.memex/knowledge_graph.db — SQLite KG
 }
 
 func LoadConfig() Config {
@@ -25,5 +31,24 @@ func LoadConfig() Config {
 	if qdrantURL == "" {
 		qdrantURL = "http://localhost:6333"
 	}
-	return Config{Port: port, QdrantURL: qdrantURL}
+	ollamaURL := os.Getenv("OLLAMA_URL")
+	if ollamaURL == "" {
+		ollamaURL = "http://localhost:11434"
+	}
+	home, _ := os.UserHomeDir()
+	identityPath := os.Getenv("IDENTITY_PATH")
+	if identityPath == "" {
+		identityPath = filepath.Join(home, ".memex", "identity.md")
+	}
+	kgPath := os.Getenv("KG_PATH")
+	if kgPath == "" {
+		kgPath = filepath.Join(home, ".memex", "knowledge_graph.db")
+	}
+	return Config{
+		Port:         port,
+		QdrantURL:    qdrantURL,
+		OllamaURL:    ollamaURL,
+		IdentityPath: identityPath,
+		KGPath:       kgPath,
+	}
 }
