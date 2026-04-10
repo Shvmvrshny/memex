@@ -2,6 +2,7 @@ package memex
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -140,16 +141,21 @@ func hookSessionStop() {
 	http.Post(getMemexURL()+"/trace/stop", "application/json", bytes.NewReader(reqBody))
 	os.Remove(fmt.Sprintf("/tmp/memex-turn-%s", input.SessionID))
 
-	// NEW: async transcript mining — non-blocking, safe to fail silently
+	// Transcript mining — bounded 2s timeout, silent on failure
 	if input.TranscriptPath != "" {
 		project := getProjectName()
-		go func() {
-			body, _ := json.Marshal(MineRequest{
-				Path:    input.TranscriptPath,
-				Project: project,
-			})
-			http.Post(getMemexURL()+"/mine/transcript", "application/json", bytes.NewReader(body))
-		}()
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		body, _ := json.Marshal(MineRequest{
+			Path:    input.TranscriptPath,
+			Project: project,
+		})
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+			getMemexURL()+"/mine/transcript", bytes.NewReader(body))
+		if err == nil {
+			req.Header.Set("Content-Type", "application/json")
+			http.DefaultClient.Do(req)
+		}
 	}
 
 	outputEmpty()
