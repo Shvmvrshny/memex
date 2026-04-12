@@ -166,6 +166,34 @@ func (h *Handlers) PinMemory(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// MineTranscript handles POST /mine/transcript
+// Body: {"path": "...", "project": "..."}
+// Starts transcript mining asynchronously, returns 202 immediately.
+func (h *Handlers) MineTranscript(w http.ResponseWriter, r *http.Request) {
+	var req MineRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if req.Path == "" {
+		writeJSONError(w, "path is required", http.StatusBadRequest)
+		return
+	}
+	project := req.Project
+	if project == "" {
+		project = "default"
+	}
+
+	miner := NewMiner(h.store)
+	go func() {
+		miner.MineTranscript(req.Path, project)
+	}()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(MineResponse{Status: "mining started", Path: req.Path})
+}
+
 // FindSimilar returns the most similar memories to the given text.
 // GET /memories/similar?text=X&project=Y&limit=5
 func (h *Handlers) FindSimilar(w http.ResponseWriter, r *http.Request) {

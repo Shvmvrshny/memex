@@ -68,6 +68,13 @@ func RunServe() {
 		}
 		h.Summarize(w, r)
 	})
+	mux.HandleFunc("/mine/transcript", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		h.MineTranscript(w, r)
+	})
 
 	// Knowledge Graph routes
 	mux.HandleFunc("/facts/stats", func(w http.ResponseWriter, r *http.Request) {

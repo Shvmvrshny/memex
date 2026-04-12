@@ -7,6 +7,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -250,5 +252,31 @@ func TestFindSimilarHandler_MissingText(t *testing.T) {
 	h.FindSimilar(w, r)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("got %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandlers_MineTranscript(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "session.jsonl")
+	os.WriteFile(path, []byte(`{"role":"user","content":"I prefer table-driven tests."}`+"\n"), 0644)
+
+	store := &mockStore{}
+	h := NewHandlers(store)
+
+	body := MineRequest{Path: path, Project: "memex"}
+	bodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/mine/transcript", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	h.MineTranscript(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Errorf("status = %d, want 202", w.Code)
+	}
+	var resp MineResponse
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp.Status != "mining started" {
+		t.Errorf("status = %q, want 'mining started'", resp.Status)
 	}
 }
