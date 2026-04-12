@@ -12,8 +12,9 @@ import (
 )
 
 type mockStore struct {
-	memories []Memory
-	err      error
+	memories      []Memory
+	err           error
+	findSimilarFn func(ctx context.Context, text, project string, limit int) ([]Memory, error)
 }
 
 func (m *mockStore) Init(ctx context.Context) error   { return m.err }
@@ -54,6 +55,9 @@ func (m *mockStore) PinnedMemories(ctx context.Context, project string) ([]Memor
 func (m *mockStore) PinMemory(ctx context.Context, id string) error { return m.err }
 
 func (m *mockStore) FindSimilar(ctx context.Context, text, project string, limit int) ([]Memory, error) {
+	if m.findSimilarFn != nil {
+		return m.findSimilarFn(ctx, text, project, limit)
+	}
 	return m.memories, m.err
 }
 
