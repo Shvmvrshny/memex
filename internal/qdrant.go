@@ -183,6 +183,7 @@ func (q *QdrantStore) vectorSearch(ctx context.Context, body map[string]any) ([]
 	var result struct {
 		Result []struct {
 			ID      string         `json:"id"`
+			Score   float32        `json:"score"`
 			Payload map[string]any `json:"payload"`
 		} `json:"result"`
 	}
@@ -190,15 +191,13 @@ func (q *QdrantStore) vectorSearch(ctx context.Context, body map[string]any) ([]
 		return nil, fmt.Errorf("decode search response: %w", err)
 	}
 
-	points := make([]struct {
-		ID      string         `json:"id"`
-		Payload map[string]any `json:"payload"`
-	}, len(result.Result))
-	for i, r := range result.Result {
-		points[i].ID = r.ID
-		points[i].Payload = r.Payload
+	memories := make([]Memory, 0, len(result.Result))
+	for _, r := range result.Result {
+		m := payloadToMemory(r.ID, r.Payload)
+		m.Score = r.Score
+		memories = append(memories, m)
 	}
-	return pointsToMemories(points), nil
+	return memories, nil
 }
 
 func (q *QdrantStore) SearchMemories(ctx context.Context, query, project, memoryType, topic string, limit int) ([]Memory, error) {
@@ -398,55 +397,65 @@ func (q *QdrantStore) scroll(ctx context.Context, body map[string]any) ([]Memory
 	return pointsToMemories(result.Result.Points), nil
 }
 
+// parsePayload converts a Qdrant point's payload into a Memory, given its ID.
+func parsePayload(id string, payload map[string]any) Memory {
+	m := Memory{ID: id}
+	if v, ok := payload["text"].(string); ok {
+		m.Text = v
+	}
+	if v, ok := payload["project"].(string); ok {
+		m.Project = v
+	}
+	if v, ok := payload["topic"].(string); ok {
+		m.Topic = v
+	}
+	if v, ok := payload["memory_type"].(string); ok {
+		m.MemoryType = v
+	}
+	if v, ok := payload["source"].(string); ok {
+		m.Source = v
+	}
+	if v, ok := payload["importance"].(float64); ok {
+		m.Importance = float32(v)
+	}
+	if v, ok := payload["timestamp"].(string); ok {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			m.Timestamp = t
+		} else {
+			log.Printf("memex: parse timestamp %q: %v", v, err)
+		}
+	}
+	if v, ok := payload["last_accessed"].(string); ok {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			m.LastAccessed = t
+		} else {
+			log.Printf("memex: parse last_accessed %q: %v", v, err)
+		}
+	}
+	if v, ok := payload["tags"].([]any); ok {
+		for _, t := range v {
+			if s, ok := t.(string); ok {
+				m.Tags = append(m.Tags, s)
+			}
+		}
+	}
+	return m
+}
+
 func pointsToMemories(points []struct {
 	ID      string         `json:"id"`
 	Payload map[string]any `json:"payload"`
 }) []Memory {
 	memories := make([]Memory, 0, len(points))
 	for _, p := range points {
-		m := Memory{ID: p.ID}
-		if v, ok := p.Payload["text"].(string); ok {
-			m.Text = v
-		}
-		if v, ok := p.Payload["project"].(string); ok {
-			m.Project = v
-		}
-		if v, ok := p.Payload["topic"].(string); ok {
-			m.Topic = v
-		}
-		if v, ok := p.Payload["memory_type"].(string); ok {
-			m.MemoryType = v
-		}
-		if v, ok := p.Payload["source"].(string); ok {
-			m.Source = v
-		}
-		if v, ok := p.Payload["importance"].(float64); ok {
-			m.Importance = float32(v)
-		}
-		if v, ok := p.Payload["timestamp"].(string); ok {
-			if t, err := time.Parse(time.RFC3339, v); err == nil {
-				m.Timestamp = t
-			} else {
-				log.Printf("memex: parse timestamp %q: %v", v, err)
-			}
-		}
-		if v, ok := p.Payload["last_accessed"].(string); ok {
-			if t, err := time.Parse(time.RFC3339, v); err == nil {
-				m.LastAccessed = t
-			} else {
-				log.Printf("memex: parse last_accessed %q: %v", v, err)
-			}
-		}
-		if v, ok := p.Payload["tags"].([]any); ok {
-			for _, t := range v {
-				if s, ok := t.(string); ok {
-					m.Tags = append(m.Tags, s)
-				}
-			}
-		}
-		memories = append(memories, m)
+		memories = append(memories, parsePayload(p.ID, p.Payload))
 	}
 	return memories
+}
+
+// payloadToMemory converts a single Qdrant point's ID and payload into a Memory.
+func payloadToMemory(id string, payload map[string]any) Memory {
+	return parsePayload(id, payload)
 }
 
 func (q *QdrantStore) put(ctx context.Context, path string, body interface{}) error {

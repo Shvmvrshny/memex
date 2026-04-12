@@ -1,0 +1,4 @@
+{"role":"user","content":"There is a bug in the embed call. It keeps crashing with nil pointer."}
+{"role":"assistant","content":[{"type":"text","text":"Let me check the Ollama response parsing."}]}
+{"role":"user","content":"Fixed it by switching to nomic-embed-text. Now it works perfectly. The trick was setting the model name correctly."}
+{"role":"assistant","content":[{"type":"text","text":"Great, glad you got it working."}]}

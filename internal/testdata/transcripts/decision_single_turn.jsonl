@@ -1,0 +1,2 @@
+{"role":"user","content":"We decided to go with SQLite WAL for the knowledge graph because we need temporal queries and single-writer serialization is fine for this workload."}
+{"role":"assistant","content":[{"type":"text","text":"Good decision. SQLite WAL mode gives you concurrent reads with serialized writes."}]}

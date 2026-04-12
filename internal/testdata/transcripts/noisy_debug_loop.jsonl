@@ -1,0 +1,5 @@
+{"role":"user","content":"ok"}
+{"role":"assistant","content":[{"type":"text","text":"Sure."}]}
+{"role":"user","content":"x"}
+{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"go test ./..."}}]}
+{"role":"assistant","content":[{"type":"text","text":"go: downloading...\nerror: exit status 1"}]}

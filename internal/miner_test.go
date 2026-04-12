@@ -63,7 +63,7 @@ func TestMiner_MineTranscript_SkipsDuplicates(t *testing.T) {
 	store := &mockMinerStore{}
 	store.mockStore.findSimilarFn = func(ctx context.Context, text, project string, limit int) ([]Memory, error) {
 		return []Memory{
-			{Text: "I prefer table-driven tests in Go.", MemoryType: "preference"},
+			{Text: "I prefer table-driven tests in Go.", MemoryType: "preference", Score: 0.95},
 		}, nil
 	}
 	miner := NewMiner(store)
@@ -74,6 +74,71 @@ func TestMiner_MineTranscript_SkipsDuplicates(t *testing.T) {
 	}
 	if len(requests) != 0 {
 		t.Errorf("expected 0 saved memories (duplicate detected), got %d", len(requests))
+	}
+}
+
+func TestMiner_DuplicateThreshold_BelowSkips(t *testing.T) {
+	jsonl := `{"role":"user","content":"I prefer table-driven tests in Go. We always use them."}` + "\n"
+	dir := t.TempDir()
+	path := filepath.Join(dir, "session.jsonl")
+	os.WriteFile(path, []byte(jsonl), 0644)
+
+	store := &mockMinerStore{}
+	// Score above threshold → should skip
+	store.mockStore.findSimilarFn = func(ctx context.Context, text, project string, limit int) ([]Memory, error) {
+		return []Memory{{Text: "similar text", MemoryType: "preference", Score: 0.921}}, nil
+	}
+	miner := NewMiner(store)
+
+	requests, err := miner.MineTranscript(path, "memex")
+	if err != nil {
+		t.Fatalf("MineTranscript: %v", err)
+	}
+	if len(requests) != 0 {
+		t.Errorf("score=0.921 >= 0.92 threshold, expected 0 saved, got %d", len(requests))
+	}
+}
+
+func TestMiner_DuplicateThreshold_AboveSaves(t *testing.T) {
+	jsonl := `{"role":"user","content":"I prefer table-driven tests in Go. We always use them."}` + "\n"
+	dir := t.TempDir()
+	path := filepath.Join(dir, "session.jsonl")
+	os.WriteFile(path, []byte(jsonl), 0644)
+
+	store := &mockMinerStore{}
+	// Score below threshold → should save
+	store.mockStore.findSimilarFn = func(ctx context.Context, text, project string, limit int) ([]Memory, error) {
+		return []Memory{{Text: "vaguely similar", MemoryType: "preference", Score: 0.919}}, nil
+	}
+	miner := NewMiner(store)
+
+	requests, err := miner.MineTranscript(path, "memex")
+	if err != nil {
+		t.Fatalf("MineTranscript: %v", err)
+	}
+	if len(requests) == 0 {
+		t.Error("score=0.919 < 0.92 threshold, expected memory to be saved")
+	}
+}
+
+func TestMiner_DuplicateThreshold_CrossProjectSaves(t *testing.T) {
+	jsonl := `{"role":"user","content":"I prefer table-driven tests in Go. We always use them."}` + "\n"
+	dir := t.TempDir()
+	path := filepath.Join(dir, "session.jsonl")
+	os.WriteFile(path, []byte(jsonl), 0644)
+
+	store := &mockMinerStore{}
+	store.mockStore.findSimilarFn = func(ctx context.Context, text, project string, limit int) ([]Memory, error) {
+		return []Memory{}, nil // store filtered to project=memex2, found nothing
+	}
+	miner := NewMiner(store)
+
+	requests, err := miner.MineTranscript(path, "memex2")
+	if err != nil {
+		t.Fatalf("MineTranscript: %v", err)
+	}
+	if len(requests) == 0 {
+		t.Error("cross-project: no similar in project=memex2, expected memory to be saved")
 	}
 }
 

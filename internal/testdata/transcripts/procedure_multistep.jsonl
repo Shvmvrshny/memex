@@ -1,0 +1,2 @@
+{"role":"user","content":"Steps to start the full stack: first run docker compose up -d to start qdrant, then run ollama serve in the background, then run memex serve to start the backend."}
+{"role":"assistant","content":[{"type":"text","text":"Got it. That is the correct startup order."}]}
