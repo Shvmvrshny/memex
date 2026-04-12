@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -171,8 +172,8 @@ func TestMCP_MemoryOverview(t *testing.T) {
 		t.Errorf("unexpected error: %v", result.Content)
 	}
 	content := fmt.Sprintf("%v", result.Content)
-	if len(content) < 50 {
-		t.Errorf("memory_overview response too short (%d chars)", len(content))
+	if !strings.Contains(content, "memex Memory Protocol") {
+		t.Errorf("memory_overview response missing protocol header, got: %s", content)
 	}
 }
 
@@ -188,6 +189,9 @@ func TestMCP_PinMemory(t *testing.T) {
 	}
 	if result.IsError {
 		t.Errorf("unexpected error: %v", result.Content)
+	}
+	if f.called["PATCH /memories/"] != 1 {
+		t.Errorf("PATCH /memories/ called %d times, want 1", f.called["PATCH /memories/"])
 	}
 }
 
