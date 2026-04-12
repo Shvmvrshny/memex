@@ -9,7 +9,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "Usage: memex <serve|mcp|hook <session-start|session-stop|pre-tool-use|post-tool-use>>")
+		fmt.Fprintln(os.Stderr, "Usage: memex <serve|mcp|hook <event>|mine <path>>")
 		os.Exit(1)
 	}
 
@@ -24,6 +24,12 @@ func main() {
 			os.Exit(1)
 		}
 		memex.RunHook(os.Args[2])
+	case "mine":
+		path := ""
+		if len(os.Args) >= 3 {
+			path = os.Args[2]
+		}
+		memex.RunMine(path)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
 		os.Exit(1)

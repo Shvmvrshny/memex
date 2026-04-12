@@ -5,6 +5,9 @@ services:
       - "8765:8765"
     environment:
       - QDRANT_URL=http://qdrant:6333
+      - OLLAMA_URL=http://host.docker.internal:11434
+    volumes:
+      - ~/.memex:/root/.memex
     depends_on:
       qdrant:
         condition: service_healthy

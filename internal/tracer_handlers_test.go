@@ -149,3 +149,29 @@ func TestCheckpointHandler(t *testing.T) {
 		t.Errorf("expected importance 0.9, got %f", ms.memories[0].Importance)
 	}
 }
+
+func TestCheckpointSetsEventType(t *testing.T) {
+	store := &mockStore{}
+	th := NewTraceHandlers(store, &mockTraceStore{})
+	body, _ := json.Marshal(CheckpointRequest{
+		Project: "memex",
+		Summary: "finished implementing auth",
+	})
+	r := httptest.NewRequest(http.MethodPost, "/checkpoint", bytes.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	th.Checkpoint(w, r)
+	if w.Code != http.StatusCreated {
+		t.Errorf("got %d, want %d", w.Code, http.StatusCreated)
+	}
+	if len(store.memories) != 1 {
+		t.Fatalf("expected 1 memory saved, got %d", len(store.memories))
+	}
+	saved := store.memories[0]
+	if saved.MemoryType != "event" {
+		t.Errorf("Checkpoint should save as MemoryType=event, got %q", saved.MemoryType)
+	}
+	if saved.Topic != "checkpoint" {
+		t.Errorf("Checkpoint should save with Topic=checkpoint, got %q", saved.Topic)
+	}
+}

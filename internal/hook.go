@@ -2,6 +2,7 @@ package memex
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -132,52 +133,81 @@ func hookSessionStop() {
 		return
 	}
 
+	// Existing: stop the trace session
 	reqBody, _ := json.Marshal(StopRequest{
 		SessionID:      input.SessionID,
 		TranscriptPath: input.TranscriptPath,
 	})
 	http.Post(getMemexURL()+"/trace/stop", "application/json", bytes.NewReader(reqBody))
 	os.Remove(fmt.Sprintf("/tmp/memex-turn-%s", input.SessionID))
+
+	// Transcript mining — bounded 2s timeout, silent on failure
+	if input.TranscriptPath != "" {
+		project := getProjectName()
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		body, _ := json.Marshal(MineRequest{
+			Path:    input.TranscriptPath,
+			Project: project,
+		})
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+			getMemexURL()+"/mine/transcript", bytes.NewReader(body))
+		if err == nil {
+			req.Header.Set("Content-Type", "application/json")
+			http.DefaultClient.Do(req)
+		}
+	}
+
 	outputEmpty()
 }
 
 func hookSessionStart() {
 	project := getProjectName()
-	context := project
+	memexURL := getMemexURL()
 
 	// Silent fail if service is offline
-	resp, err := http.Get(getMemexURL() + "/health")
+	resp, err := http.Get(memexURL + "/health")
 	if err != nil || resp.StatusCode != http.StatusOK {
 		outputOfflineWarning()
 		return
 	}
 	resp.Body.Close()
 
-	// Fetch relevant memories
-	apiURL := fmt.Sprintf("%s/memories?context=%s&limit=5",
-		getMemexURL(), url.QueryEscape(context))
-	resp2, err := http.Get(apiURL)
-	if err != nil {
+	cfg := LoadConfig()
+
+	// L0 — Identity from disk
+	identity := loadIdentity(cfg.IdentityPath)
+
+	// L1 — Pinned memories (importance >= 0.9), pure payload filter, no embedding
+	var pinned []Memory
+	pinnedURL := fmt.Sprintf("%s/memories/pinned?project=%s", memexURL, url.QueryEscape(project))
+	if r, err := http.Get(pinnedURL); err == nil {
+		defer r.Body.Close()
+		var result SearchResponse
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &result)
+		pinned = result.Memories
+	}
+
+	// L2 — Semantic context: top 5, type-prioritised (preference + decision first)
+	var semantic []Memory
+	query := fmt.Sprintf("project %s session context", project)
+	semanticURL := fmt.Sprintf("%s/memories?context=%s&project=%s&limit=5",
+		memexURL, url.QueryEscape(query), url.QueryEscape(project))
+	if r, err := http.Get(semanticURL); err == nil {
+		defer r.Body.Close()
+		var result SearchResponse
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &result)
+		semantic = sortByTypePriority(result.Memories)
+	}
+
+	block := buildMemoryContext(identity, pinned, semantic)
+	if block == "" {
 		outputEmpty()
 		return
 	}
-	defer resp2.Body.Close()
-
-	body, _ := io.ReadAll(resp2.Body)
-	var result SearchResponse
-	if err := json.Unmarshal(body, &result); err != nil || len(result.Memories) == 0 {
-		outputEmpty()
-		return
-	}
-
-	var sb strings.Builder
-	sb.WriteString("<memex-memory>\n")
-	for _, m := range result.Memories {
-		sb.WriteString(fmt.Sprintf("- %s\n", m.Text))
-	}
-	sb.WriteString("</memex-memory>")
-
-	outputContext(sb.String())
+	outputContext(block)
 }
 
 func getProjectName() string {
@@ -218,4 +248,68 @@ func outputOfflineWarning() {
 
 func outputEmpty() {
 	os.Stdout.Write([]byte("{}\n"))
+}
+
+// loadIdentity reads the L0 identity file from disk.
+// Returns empty string if the file doesn't exist — L0 is silently skipped.
+func loadIdentity(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// sortByTypePriority reorders memories so "preference" and "decision" types
+// appear before all others. Preserves original relative order within each tier.
+func sortByTypePriority(memories []Memory) []Memory {
+	result := make([]Memory, 0, len(memories))
+	var high, low []Memory
+	for _, m := range memories {
+		if m.MemoryType == "preference" || m.MemoryType == "decision" {
+			high = append(high, m)
+		} else {
+			low = append(low, m)
+		}
+	}
+	result = append(result, high...)
+	result = append(result, low...)
+	return result
+}
+
+// buildMemoryContext assembles the structured <memex-memory> block.
+// Returns empty string if all layers are empty (avoids injecting a blank block).
+func buildMemoryContext(identity string, pinned []Memory, semantic []Memory) string {
+	if identity == "" && len(pinned) == 0 && len(semantic) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("<memex-memory>\n")
+
+	if identity != "" {
+		sb.WriteString("[identity]\n")
+		sb.WriteString(identity)
+		sb.WriteString("\n\n")
+	}
+
+	if len(pinned) > 0 {
+		sb.WriteString("[pinned]\n")
+		for _, m := range pinned {
+			sb.WriteString(fmt.Sprintf("- (%s) %s\n", m.MemoryType, m.Text))
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(semantic) > 0 {
+		sb.WriteString("[context]\n")
+		for _, m := range semantic {
+			sb.WriteString(fmt.Sprintf("- (%s) %s\n", m.MemoryType, m.Text))
+		}
+		sb.WriteString("\n")
+	}
+
+	result := strings.TrimRight(sb.String(), "\n")
+	result += "\n</memex-memory>"
+	return result
 }

@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -14,16 +16,16 @@ import (
 )
 
 type QdrantStore struct {
-	baseURL string
-	client  *http.Client
+	baseURL   string
+	ollamaURL string
+	client    *http.Client
 }
 
-func NewQdrantStore(baseURL string) *QdrantStore {
+func NewQdrantStore(baseURL, ollamaURL string) *QdrantStore {
 	return &QdrantStore{
-		baseURL: baseURL,
-		client: &http.Client{
-			Timeout: 10 * time.Second,
-		},
+		baseURL:   baseURL,
+		ollamaURL: ollamaURL,
+		client:    &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
@@ -43,52 +45,64 @@ func (q *QdrantStore) Health(ctx context.Context) error {
 	return nil
 }
 
+// Init creates the memories collection and all payload indexes.
+// Safe to call multiple times — existing collection and indexes are preserved.
 func (q *QdrantStore) Init(ctx context.Context) error {
-	collectionBody := map[string]interface{}{
-		"vectors": map[string]interface{}{
-			"size":     1,
-			"distance": "Dot",
-		},
-	}
-	if err := q.put(ctx, "/collections/memories", collectionBody); err != nil {
+	return q.createCollection(ctx)
+}
+
+func (q *QdrantStore) createCollection(ctx context.Context) error {
+	if err := q.put(ctx, "/collections/memories", map[string]interface{}{
+		"vectors": map[string]interface{}{"size": 768, "distance": "Cosine"},
+	}); err != nil {
 		if !strings.Contains(err.Error(), "already exists") {
 			return fmt.Errorf("create collection: %w", err)
 		}
 	}
 
-	indexBody := map[string]interface{}{
-		"field_name":   "text",
-		"field_schema": "text",
+	indexes := []struct{ field, schema string }{
+		{"text", "text"},
+		{"project", "keyword"},
+		{"memory_type", "keyword"},
+		{"topic", "keyword"},
 	}
-	if err := q.put(ctx, "/collections/memories/index", indexBody); err != nil {
-		if !strings.Contains(err.Error(), "already exists") {
-			return fmt.Errorf("create payload index: %w", err)
+	for _, idx := range indexes {
+		if err := q.put(ctx, "/collections/memories/index", map[string]interface{}{
+			"field_name":   idx.field,
+			"field_schema": idx.schema,
+		}); err != nil {
+			if !strings.Contains(err.Error(), "already exists") {
+				return fmt.Errorf("create %s index: %w", idx.field, err)
+			}
 		}
 	}
-
+	log.Printf("memex: memories collection ready")
 	return nil
 }
 
-func (q *QdrantStore) put(ctx context.Context, path string, body interface{}) error {
-	data, err := json.Marshal(body)
-	if err != nil {
-		return fmt.Errorf("marshal body: %w", err)
+// buildFilter constructs a Qdrant filter from optional project/memoryType/topic values.
+// Returns nil when all are empty (no filter).
+func buildFilter(project, memoryType, topic string) map[string]any {
+	var conditions []map[string]any
+	if project != "" {
+		conditions = append(conditions, map[string]any{
+			"key": "project", "match": map[string]any{"value": project},
+		})
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, q.baseURL+path, bytes.NewReader(data))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
+	if memoryType != "" {
+		conditions = append(conditions, map[string]any{
+			"key": "memory_type", "match": map[string]any{"value": memoryType},
+		})
 	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := q.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("do request: %w", err)
+	if topic != "" {
+		conditions = append(conditions, map[string]any{
+			"key": "topic", "match": map[string]any{"value": topic},
+		})
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("status %d: %s", resp.StatusCode, string(b))
+	if len(conditions) == 0 {
+		return nil
 	}
-	return nil
+	return map[string]any{"must": conditions}
 }
 
 func (q *QdrantStore) SaveMemory(ctx context.Context, req SaveMemoryRequest) (Memory, error) {
@@ -104,14 +118,24 @@ func (q *QdrantStore) SaveMemory(ctx context.Context, req SaveMemoryRequest) (Me
 	if req.Tags == nil {
 		req.Tags = []string{}
 	}
+	if req.Topic == "" {
+		req.Topic = req.Project
+	}
+
+	vector, err := q.embed(ctx, req.Text)
+	if err != nil {
+		return Memory{}, fmt.Errorf("embed memory: %w", err)
+	}
 
 	body := map[string]any{
 		"points": []map[string]any{{
 			"id":     id,
-			"vector": []float32{0.0},
+			"vector": vector,
 			"payload": map[string]any{
 				"text":          req.Text,
 				"project":       req.Project,
+				"topic":         req.Topic,
+				"memory_type":   req.MemoryType,
 				"source":        req.Source,
 				"timestamp":     now.Format(time.RFC3339),
 				"importance":    req.Importance,
@@ -129,12 +153,218 @@ func (q *QdrantStore) SaveMemory(ctx context.Context, req SaveMemoryRequest) (Me
 		ID:           id,
 		Text:         req.Text,
 		Project:      req.Project,
+		Topic:        req.Topic,
+		MemoryType:   req.MemoryType,
 		Source:       req.Source,
 		Timestamp:    now,
 		Importance:   req.Importance,
 		Tags:         req.Tags,
 		LastAccessed: now,
 	}, nil
+}
+
+func (q *QdrantStore) vectorSearch(ctx context.Context, body map[string]any) ([]Memory, error) {
+	data, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("marshal search body: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		q.baseURL+"/collections/memories/points/search", bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := q.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Result []struct {
+			ID      string         `json:"id"`
+			Payload map[string]any `json:"payload"`
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode search response: %w", err)
+	}
+
+	points := make([]struct {
+		ID      string         `json:"id"`
+		Payload map[string]any `json:"payload"`
+	}, len(result.Result))
+	for i, r := range result.Result {
+		points[i].ID = r.ID
+		points[i].Payload = r.Payload
+	}
+	return pointsToMemories(points), nil
+}
+
+func (q *QdrantStore) SearchMemories(ctx context.Context, query, project, memoryType, topic string, limit int) ([]Memory, error) {
+	if limit <= 0 {
+		limit = 5
+	}
+	vector, err := q.embed(ctx, query)
+	if err != nil {
+		log.Printf("memex: embed fallback in SearchMemories: %v", err)
+		return q.ListMemories(ctx, project, memoryType, topic, limit)
+	}
+	body := map[string]any{
+		"vector":       vector,
+		"limit":        limit,
+		"with_payload": true,
+		"with_vector":  false,
+	}
+	if f := buildFilter(project, memoryType, topic); f != nil {
+		body["filter"] = f
+	}
+	return q.vectorSearch(ctx, body)
+}
+
+func (q *QdrantStore) ListMemories(ctx context.Context, project, memoryType, topic string, limit int) ([]Memory, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	fetchLimit := limit * 10
+	if fetchLimit < 100 {
+		fetchLimit = 100
+	}
+
+	body := map[string]any{
+		"limit":        fetchLimit,
+		"with_payload": true,
+		"with_vector":  false,
+	}
+	if f := buildFilter(project, memoryType, topic); f != nil {
+		body["filter"] = f
+	}
+
+	memories, err := q.scroll(ctx, body)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	score := func(m Memory) float64 {
+		days := now.Sub(m.Timestamp).Hours() / 24
+		recency := 1.0 / (1.0 + days/30.0)
+		return 0.6*float64(m.Importance) + 0.4*recency
+	}
+	sort.Slice(memories, func(i, j int) bool {
+		return score(memories[i]) > score(memories[j])
+	})
+	if len(memories) > limit {
+		memories = memories[:limit]
+	}
+	return memories, nil
+}
+
+func (q *QdrantStore) PinnedMemories(ctx context.Context, project string) ([]Memory, error) {
+	body := map[string]any{
+		"limit":        10,
+		"with_payload": true,
+		"with_vector":  false,
+		"filter": map[string]any{
+			"must": []map[string]any{
+				{"key": "project", "match": map[string]any{"value": project}},
+				{"key": "importance", "range": map[string]any{"gte": 0.9}},
+			},
+		},
+	}
+	memories, err := q.scroll(ctx, body)
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(memories, func(i, j int) bool {
+		return memories[i].Importance > memories[j].Importance
+	})
+	return memories, nil
+}
+
+func (q *QdrantStore) PinMemory(ctx context.Context, id string) error {
+	body := map[string]any{
+		"payload": map[string]any{"importance": float64(1.0)},
+		"points":  []string{id},
+	}
+	return q.post(ctx, "/collections/memories/points/payload", body)
+}
+
+func (q *QdrantStore) FindSimilar(ctx context.Context, text, project string, limit int) ([]Memory, error) {
+	if limit <= 0 {
+		limit = 5
+	}
+	vector, err := q.embed(ctx, text)
+	if err != nil {
+		return nil, fmt.Errorf("embed for similarity: %w", err)
+	}
+	body := map[string]any{
+		"vector":       vector,
+		"limit":        limit,
+		"with_payload": true,
+		"with_vector":  false,
+	}
+	if project != "" {
+		body["filter"] = map[string]any{
+			"must": []map[string]any{
+				{"key": "project", "match": map[string]any{"value": project}},
+			},
+		}
+	}
+	return q.vectorSearch(ctx, body)
+}
+
+func (q *QdrantStore) DeleteMemory(ctx context.Context, id string) error {
+	body := map[string]any{"points": []string{id}}
+	data, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("marshal body: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		q.baseURL+"/collections/memories/points/delete", bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := q.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("delete request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("status %d: %s", resp.StatusCode, string(b))
+	}
+	return nil
+}
+
+func (q *QdrantStore) embed(ctx context.Context, text string) ([]float32, error) {
+	body, _ := json.Marshal(map[string]string{
+		"model":  "nomic-embed-text",
+		"prompt": text,
+	})
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		q.ollamaURL+"/api/embeddings", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	resp, err := q.client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("ollama unavailable: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Embedding []float32 `json:"embedding"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode embedding: %w", err)
+	}
+	if len(result.Embedding) == 0 {
+		return nil, fmt.Errorf("empty embedding from ollama")
+	}
+	return result.Embedding, nil
 }
 
 type qdrantScrollResponse struct {
@@ -181,6 +411,12 @@ func pointsToMemories(points []struct {
 		if v, ok := p.Payload["project"].(string); ok {
 			m.Project = v
 		}
+		if v, ok := p.Payload["topic"].(string); ok {
+			m.Topic = v
+		}
+		if v, ok := p.Payload["memory_type"].(string); ok {
+			m.MemoryType = v
+		}
 		if v, ok := p.Payload["source"].(string); ok {
 			m.Source = v
 		}
@@ -188,10 +424,18 @@ func pointsToMemories(points []struct {
 			m.Importance = float32(v)
 		}
 		if v, ok := p.Payload["timestamp"].(string); ok {
-			m.Timestamp, _ = time.Parse(time.RFC3339, v)
+			if t, err := time.Parse(time.RFC3339, v); err == nil {
+				m.Timestamp = t
+			} else {
+				log.Printf("memex: parse timestamp %q: %v", v, err)
+			}
 		}
 		if v, ok := p.Payload["last_accessed"].(string); ok {
-			m.LastAccessed, _ = time.Parse(time.RFC3339, v)
+			if t, err := time.Parse(time.RFC3339, v); err == nil {
+				m.LastAccessed = t
+			} else {
+				log.Printf("memex: parse last_accessed %q: %v", v, err)
+			}
 		}
 		if v, ok := p.Payload["tags"].([]any); ok {
 			for _, t := range v {
@@ -205,64 +449,41 @@ func pointsToMemories(points []struct {
 	return memories
 }
 
-func (q *QdrantStore) SearchMemories(ctx context.Context, query, project string, limit int) ([]Memory, error) {
-	if limit <= 0 {
-		limit = 5
-	}
-
-	mustClauses := []map[string]any{{
-		"key":   "text",
-		"match": map[string]any{"text": query},
-	}}
-	if project != "" {
-		mustClauses = append(mustClauses, map[string]any{
-			"key":   "project",
-			"match": map[string]any{"value": project},
-		})
-	}
-
-	return q.scroll(ctx, map[string]any{
-		"filter":       map[string]any{"must": mustClauses},
-		"limit":        limit,
-		"with_payload": true,
-		"with_vector":  false,
-	})
-}
-
-func (q *QdrantStore) ListMemories(ctx context.Context, project string) ([]Memory, error) {
-	body := map[string]any{
-		"limit":        100,
-		"with_payload": true,
-		"with_vector":  false,
-	}
-	if project != "" {
-		body["filter"] = map[string]any{
-			"must": []map[string]any{{
-				"key":   "project",
-				"match": map[string]any{"value": project},
-			}},
-		}
-	}
-	return q.scroll(ctx, body)
-}
-
-func (q *QdrantStore) DeleteMemory(ctx context.Context, id string) error {
-	body := map[string]any{
-		"points": []string{id},
-	}
+func (q *QdrantStore) put(ctx context.Context, path string, body interface{}) error {
 	data, err := json.Marshal(body)
 	if err != nil {
 		return fmt.Errorf("marshal body: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		q.baseURL+"/collections/memories/points/delete", bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, q.baseURL+path, bytes.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := q.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("delete request: %w", err)
+		return fmt.Errorf("do request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("status %d: %s", resp.StatusCode, string(b))
+	}
+	return nil
+}
+
+func (q *QdrantStore) post(ctx context.Context, path string, body interface{}) error {
+	data, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("marshal body: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, q.baseURL+path, bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := q.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("do request: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
