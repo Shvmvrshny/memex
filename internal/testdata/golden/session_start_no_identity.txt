@@ -1,0 +1,7 @@
+<memex-memory>
+[pinned]
+- (preference) critical preference
+
+[context]
+- (decision) use Qdrant for storage
+</memex-memory>

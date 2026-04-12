@@ -1,0 +1,11 @@
+<memex-memory>
+[identity]
+I am Shivam. I build developer tools.
+
+[pinned]
+- (preference) prefer table-driven tests
+- (decision) use Qdrant for storage
+
+[context]
+- (discovery) Ollama must run on host.docker.internal
+</memex-memory>
