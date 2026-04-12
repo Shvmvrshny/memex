@@ -397,59 +397,8 @@ func (q *QdrantStore) scroll(ctx context.Context, body map[string]any) ([]Memory
 	return pointsToMemories(result.Result.Points), nil
 }
 
-func pointsToMemories(points []struct {
-	ID      string         `json:"id"`
-	Payload map[string]any `json:"payload"`
-}) []Memory {
-	memories := make([]Memory, 0, len(points))
-	for _, p := range points {
-		m := Memory{ID: p.ID}
-		if v, ok := p.Payload["text"].(string); ok {
-			m.Text = v
-		}
-		if v, ok := p.Payload["project"].(string); ok {
-			m.Project = v
-		}
-		if v, ok := p.Payload["topic"].(string); ok {
-			m.Topic = v
-		}
-		if v, ok := p.Payload["memory_type"].(string); ok {
-			m.MemoryType = v
-		}
-		if v, ok := p.Payload["source"].(string); ok {
-			m.Source = v
-		}
-		if v, ok := p.Payload["importance"].(float64); ok {
-			m.Importance = float32(v)
-		}
-		if v, ok := p.Payload["timestamp"].(string); ok {
-			if t, err := time.Parse(time.RFC3339, v); err == nil {
-				m.Timestamp = t
-			} else {
-				log.Printf("memex: parse timestamp %q: %v", v, err)
-			}
-		}
-		if v, ok := p.Payload["last_accessed"].(string); ok {
-			if t, err := time.Parse(time.RFC3339, v); err == nil {
-				m.LastAccessed = t
-			} else {
-				log.Printf("memex: parse last_accessed %q: %v", v, err)
-			}
-		}
-		if v, ok := p.Payload["tags"].([]any); ok {
-			for _, t := range v {
-				if s, ok := t.(string); ok {
-					m.Tags = append(m.Tags, s)
-				}
-			}
-		}
-		memories = append(memories, m)
-	}
-	return memories
-}
-
-// payloadToMemory converts a single Qdrant point's ID and payload into a Memory.
-func payloadToMemory(id string, payload map[string]any) Memory {
+// parsePayload converts a Qdrant point's payload into a Memory, given its ID.
+func parsePayload(id string, payload map[string]any) Memory {
 	m := Memory{ID: id}
 	if v, ok := payload["text"].(string); ok {
 		m.Text = v
@@ -491,6 +440,22 @@ func payloadToMemory(id string, payload map[string]any) Memory {
 		}
 	}
 	return m
+}
+
+func pointsToMemories(points []struct {
+	ID      string         `json:"id"`
+	Payload map[string]any `json:"payload"`
+}) []Memory {
+	memories := make([]Memory, 0, len(points))
+	for _, p := range points {
+		memories = append(memories, parsePayload(p.ID, p.Payload))
+	}
+	return memories
+}
+
+// payloadToMemory converts a single Qdrant point's ID and payload into a Memory.
+func payloadToMemory(id string, payload map[string]any) Memory {
+	return parsePayload(id, payload)
 }
 
 func (q *QdrantStore) put(ctx context.Context, path string, body interface{}) error {
