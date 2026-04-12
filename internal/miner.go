@@ -45,7 +45,10 @@ func (m *Miner) MineTranscript(path, project string) ([]SaveMemoryRequest, error
 
 		// Duplicate detection: skip if FindSimilar returns any results
 		similar, err := m.store.FindSimilar(ctx, turn.Text, project, 1)
-		if err == nil && len(similar) > 0 {
+		if err != nil {
+			continue // dedup unavailable — skip to avoid duplicates
+		}
+		if len(similar) > 0 {
 			continue
 		}
 

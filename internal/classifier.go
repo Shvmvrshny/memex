@@ -17,7 +17,6 @@ var typeMarkers = map[string][]string{
 		`strategy`,
 		`configure`,
 		`trade-?off`,
-		`pros and cons`,
 	},
 	"preference": {
 		`i prefer`,
