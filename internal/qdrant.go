@@ -193,15 +193,9 @@ func (q *QdrantStore) vectorSearch(ctx context.Context, body map[string]any) ([]
 
 	memories := make([]Memory, 0, len(result.Result))
 	for _, r := range result.Result {
-		pts := []struct {
-			ID      string         `json:"id"`
-			Payload map[string]any `json:"payload"`
-		}{{ID: r.ID, Payload: r.Payload}}
-		mems := pointsToMemories(pts)
-		if len(mems) > 0 {
-			mems[0].Score = r.Score
-			memories = append(memories, mems[0])
-		}
+		m := payloadToMemory(r.ID, r.Payload)
+		m.Score = r.Score
+		memories = append(memories, m)
 	}
 	return memories, nil
 }
@@ -452,6 +446,51 @@ func pointsToMemories(points []struct {
 		memories = append(memories, m)
 	}
 	return memories
+}
+
+// payloadToMemory converts a single Qdrant point's ID and payload into a Memory.
+func payloadToMemory(id string, payload map[string]any) Memory {
+	m := Memory{ID: id}
+	if v, ok := payload["text"].(string); ok {
+		m.Text = v
+	}
+	if v, ok := payload["project"].(string); ok {
+		m.Project = v
+	}
+	if v, ok := payload["topic"].(string); ok {
+		m.Topic = v
+	}
+	if v, ok := payload["memory_type"].(string); ok {
+		m.MemoryType = v
+	}
+	if v, ok := payload["source"].(string); ok {
+		m.Source = v
+	}
+	if v, ok := payload["importance"].(float64); ok {
+		m.Importance = float32(v)
+	}
+	if v, ok := payload["timestamp"].(string); ok {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			m.Timestamp = t
+		} else {
+			log.Printf("memex: parse timestamp %q: %v", v, err)
+		}
+	}
+	if v, ok := payload["last_accessed"].(string); ok {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			m.LastAccessed = t
+		} else {
+			log.Printf("memex: parse last_accessed %q: %v", v, err)
+		}
+	}
+	if v, ok := payload["tags"].([]any); ok {
+		for _, t := range v {
+			if s, ok := t.(string); ok {
+				m.Tags = append(m.Tags, s)
+			}
+		}
+	}
+	return m
 }
 
 func (q *QdrantStore) put(ctx context.Context, path string, body interface{}) error {
