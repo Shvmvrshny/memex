@@ -72,7 +72,11 @@ func (h *KGHandlers) ExpireFact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.kg.ExpireFact(id, ""); err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		if strings.Contains(err.Error(), "not found or already expired") {
+			http.Error(w, err.Error(), http.StatusNotFound)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

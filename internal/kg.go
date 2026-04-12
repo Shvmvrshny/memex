@@ -169,26 +169,35 @@ func (kg *KnowledgeGraph) Stats() (KGStats, error) {
 	var stats KGStats
 
 	row := kg.db.QueryRow(`SELECT COUNT(*) FROM facts`)
-	row.Scan(&stats.TotalFacts)
+	if err := row.Scan(&stats.TotalFacts); err != nil {
+		return KGStats{}, fmt.Errorf("stats total: %w", err)
+	}
 
 	row = kg.db.QueryRow(`SELECT COUNT(*) FROM facts WHERE valid_until IS NULL`)
-	row.Scan(&stats.ActiveFacts)
+	if err := row.Scan(&stats.ActiveFacts); err != nil {
+		return KGStats{}, fmt.Errorf("stats active: %w", err)
+	}
 
 	stats.ExpiredFacts = stats.TotalFacts - stats.ActiveFacts
 
 	row = kg.db.QueryRow(`SELECT COUNT(DISTINCT subject) FROM facts`)
-	row.Scan(&stats.EntityCount)
+	if err := row.Scan(&stats.EntityCount); err != nil {
+		return KGStats{}, fmt.Errorf("stats entity count: %w", err)
+	}
 
 	rows, err := kg.db.Query(`SELECT predicate, COUNT(*) FROM facts GROUP BY predicate ORDER BY predicate`)
-	if err == nil {
-		defer rows.Close()
-		stats.PredicateTypes = make(map[string]int)
-		for rows.Next() {
-			var p string
-			var count int
-			rows.Scan(&p, &count)
-			stats.PredicateTypes[p] = count
+	if err != nil {
+		return KGStats{}, fmt.Errorf("stats predicate query: %w", err)
+	}
+	defer rows.Close()
+	stats.PredicateTypes = make(map[string]int)
+	for rows.Next() {
+		var p string
+		var count int
+		if err := rows.Scan(&p, &count); err != nil {
+			return KGStats{}, fmt.Errorf("stats predicate scan: %w", err)
 		}
+		stats.PredicateTypes[p] = count
 	}
 
 	return stats, nil
