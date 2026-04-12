@@ -6,6 +6,8 @@ import (
 	"strings"
 )
 
+const duplicateThreshold = float32(0.92)
+
 // Miner reads a transcript file, classifies each conversation turn into typed
 // memories, deduplicates against existing memories, and saves new ones.
 type Miner struct {
@@ -43,12 +45,12 @@ func (m *Miner) MineTranscript(path, project string) ([]SaveMemoryRequest, error
 			continue
 		}
 
-		// Duplicate detection: skip if FindSimilar returns any results
+		// Duplicate detection: skip if FindSimilar returns results above threshold
 		similar, err := m.store.FindSimilar(ctx, turn.Text, project, 1)
 		if err != nil {
 			continue // dedup unavailable — skip to avoid duplicates
 		}
-		if len(similar) > 0 {
+		if len(similar) > 0 && similar[0].Score >= duplicateThreshold {
 			continue
 		}
 
