@@ -26,6 +26,7 @@ type Memory struct {
 	Importance   float32   `json:"importance"`
 	Tags         []string  `json:"tags"`
 	LastAccessed time.Time `json:"last_accessed"`
+	Score        float32   `json:"score,omitempty"` // similarity score, not stored in Qdrant
 }
 
 type SaveMemoryRequest struct {

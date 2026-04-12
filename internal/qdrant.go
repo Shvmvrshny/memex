@@ -183,6 +183,7 @@ func (q *QdrantStore) vectorSearch(ctx context.Context, body map[string]any) ([]
 	var result struct {
 		Result []struct {
 			ID      string         `json:"id"`
+			Score   float32        `json:"score"`
 			Payload map[string]any `json:"payload"`
 		} `json:"result"`
 	}
@@ -190,15 +191,19 @@ func (q *QdrantStore) vectorSearch(ctx context.Context, body map[string]any) ([]
 		return nil, fmt.Errorf("decode search response: %w", err)
 	}
 
-	points := make([]struct {
-		ID      string         `json:"id"`
-		Payload map[string]any `json:"payload"`
-	}, len(result.Result))
-	for i, r := range result.Result {
-		points[i].ID = r.ID
-		points[i].Payload = r.Payload
+	memories := make([]Memory, 0, len(result.Result))
+	for _, r := range result.Result {
+		pts := []struct {
+			ID      string         `json:"id"`
+			Payload map[string]any `json:"payload"`
+		}{{ID: r.ID, Payload: r.Payload}}
+		mems := pointsToMemories(pts)
+		if len(mems) > 0 {
+			mems[0].Score = r.Score
+			memories = append(memories, mems[0])
+		}
 	}
-	return pointsToMemories(points), nil
+	return memories, nil
 }
 
 func (q *QdrantStore) SearchMemories(ctx context.Context, query, project, memoryType, topic string, limit int) ([]Memory, error) {
