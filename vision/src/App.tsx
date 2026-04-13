@@ -26,12 +26,16 @@ export default function App() {
             <div className="flex h-full items-center justify-center text-zinc-600 text-sm">
               Select a project to explore memories
             </div>
-          ) : state.memories.length === 0 && !state.loading ? (
+          ) : state.loading ? (
+            <div className="flex h-full items-center justify-center text-zinc-600 text-sm">
+              Loading…
+            </div>
+          ) : state.nodes.length === 0 ? (
             <div className="flex h-full items-center justify-center text-zinc-600 text-sm">
               No memories found
             </div>
           ) : (
-            <GraphCanvas />
+            <GraphCanvas key={state.selectedProject} />
           )}
 
           {state.error && (
