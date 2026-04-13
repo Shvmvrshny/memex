@@ -13,6 +13,14 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  vision:
+    build: ./vision
+    ports:
+      - "5173:5173"
+    depends_on:
+      - memex
+    restart: unless-stopped
+
   qdrant:
     image: qdrant/qdrant:v1.13.0
     ports:
