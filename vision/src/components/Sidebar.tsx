@@ -1,3 +1,4 @@
+import { motion } from 'framer-motion'
 import { useAppStore, type EdgeLayer } from '../store'
 import { MEMORY_TYPE_COLORS } from '../lib/colors'
 
@@ -19,7 +20,12 @@ export function Sidebar() {
   const uniqueTopics = [...new Set(memories.map((m) => m.topic).filter(Boolean))].sort()
 
   return (
-    <aside className="w-60 flex-shrink-0 border-r border-zinc-800 bg-[#111] overflow-y-auto flex flex-col">
+    <motion.aside
+      initial={{ x: -240, opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+      className="w-60 flex-shrink-0 border-r border-zinc-800 bg-[#111] overflow-y-auto flex flex-col"
+    >
       {/* App title */}
       <div className="px-4 py-4 border-b border-zinc-800">
         <span className="text-base font-semibold tracking-tight text-white">vision</span>
@@ -127,7 +133,7 @@ export function Sidebar() {
           ))}
         </Section>
       )}
-    </aside>
+    </motion.aside>
   )
 }
 

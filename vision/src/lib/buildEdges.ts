@@ -1,6 +1,19 @@
 import type { Edge as FlowEdge } from '@xyflow/react'
 import type { Memory, Fact } from '../api'
 
+/** Deterministic color from predicate string using a small palette */
+function predicateColor(predicate: string): string {
+  const palette = [
+    '#6366f1', '#8b5cf6', '#3b82f6', '#10b981',
+    '#f59e0b', '#ef4444', '#06b6d4', '#ec4899',
+  ]
+  let hash = 0
+  for (let i = 0; i < predicate.length; i++) {
+    hash = (hash * 31 + predicate.charCodeAt(i)) >>> 0
+  }
+  return palette[hash % palette.length]
+}
+
 export function buildTopicEdges(memories: Memory[]): FlowEdge[] {
   const edges: FlowEdge[] = []
   const seen = new Set<string>()
@@ -49,7 +62,7 @@ export function buildKGEdges(memories: Memory[], facts: Fact[]): FlowEdge[] {
           source: s.id,
           target: t.id,
           label: fact.predicate,
-          style: { stroke: '#6366f1', strokeWidth: 1 },
+          style: { stroke: predicateColor(fact.predicate), strokeWidth: 1 },
         })
       }
     }
@@ -63,14 +76,17 @@ export function buildSemanticEdges(
 ): FlowEdge[] {
   return similarMemories
     .filter((m) => m.id !== sourceMemory.id)
-    .map((m) => ({
-      id: `sim-${sourceMemory.id}-${m.id}`,
-      source: sourceMemory.id,
-      target: m.id,
-      style: {
-        stroke: 'rgba(16,185,129,0.5)',
-        strokeWidth: 1,
-        strokeDasharray: '4 2',
-      },
-    }))
+    .map((m) => {
+      const opacity = (m.score ?? 0.5).toFixed(2)
+      return {
+        id: `sim-${sourceMemory.id}-${m.id}`,
+        source: sourceMemory.id,
+        target: m.id,
+        style: {
+          stroke: `rgba(16,185,129,${opacity})`,
+          strokeWidth: 1,
+          strokeDasharray: '4 2',
+        },
+      }
+    })
 }
