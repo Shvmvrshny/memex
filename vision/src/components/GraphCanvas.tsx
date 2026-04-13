@@ -6,13 +6,14 @@ import {
   Controls,
   type NodeMouseHandler,
   type Node as FlowNode,
+  type NodeTypes,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useAppStore } from '../store'
 import { MemoryNode } from './MemoryNode'
 import type { MemoryNodeData } from '../lib/buildNodes'
 
-const nodeTypes = { memory: MemoryNode }
+const nodeTypes: NodeTypes = { memory: MemoryNode as NodeTypes[string] }
 
 export function GraphCanvas() {
   const { state, dispatch } = useAppStore()

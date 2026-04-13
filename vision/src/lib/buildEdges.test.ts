@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { buildTopicEdges, buildKGEdges, buildSemanticEdges } from './buildEdges'
 import type { Memory, Fact } from '../api'
-import type { Edge as FlowEdge } from '@xyflow/react'
 
 const mem = (overrides: Partial<Memory> & { id: string }): Memory => ({
   text: 'text',

@@ -1,12 +1,12 @@
 import { memo } from 'react'
-import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { Handle, Position, type NodeProps, type Node } from '@xyflow/react'
 import type { MemoryNodeData } from '../lib/buildNodes'
 import { MEMORY_TYPE_COLORS, DEFAULT_NODE_COLOR } from '../lib/colors'
 
 export const MemoryNode = memo(function MemoryNode({
   data,
   selected,
-}: NodeProps<MemoryNodeData & { [key: string]: unknown }>) {
+}: NodeProps<Node<MemoryNodeData>>) {
   const r = data.radius as number
   const memory = data.memory as MemoryNodeData['memory']
   const color = MEMORY_TYPE_COLORS[memory.memory_type] ?? DEFAULT_NODE_COLOR
