@@ -23,7 +23,9 @@ export function buildTopicEdges(memories: Memory[]): FlowEdge[] {
       const a = memories[i]
       const b = memories[j]
       const shareTopic = Boolean(a.topic && b.topic && a.topic === b.topic)
-      const shareTag = a.tags.some((t) => b.tags.includes(t))
+      const aTags = a.tags ?? []
+      const bTags = b.tags ?? []
+      const shareTag = aTags.length > 0 && bTags.length > 0 && aTags.some((t) => bTags.includes(t))
       if (!shareTopic && !shareTag) continue
 
       const key = `${a.id}-${b.id}`
