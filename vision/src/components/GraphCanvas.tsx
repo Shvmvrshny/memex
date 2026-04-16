@@ -27,7 +27,7 @@ export function GraphCanvas() {
       const matchesSearch =
         !q ||
         mem.text.toLowerCase().includes(q) ||
-        mem.topic.toLowerCase().includes(q)
+        (mem.topic ?? '').toLowerCase().includes(q)
       const isSelected = n.id === selectedNodeId
       const isNeighbor = selectedNodeId
         ? edges.some(

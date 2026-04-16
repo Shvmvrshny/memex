@@ -62,7 +62,7 @@ export function NodeInspector() {
             {memory.source && (
               <Row label="source" value={memory.source} />
             )}
-            {memory.tags.length > 0 && (
+            {(memory.tags?.length ?? 0) > 0 && (
               <div className="flex flex-col gap-1">
                 <span className="text-zinc-600">tags</span>
                 <div className="flex flex-wrap gap-1">

@@ -199,6 +199,11 @@ func handleSaveMemory(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallTo
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode >= 400 {
+		var errBody map[string]string
+		json.NewDecoder(resp.Body).Decode(&errBody)
+		return mcp.NewToolResultError(fmt.Sprintf("save failed (status %d): %s", resp.StatusCode, errBody["error"])), nil
+	}
 	var mem Memory
 	json.NewDecoder(resp.Body).Decode(&mem)
 	return mcp.NewToolResultText(fmt.Sprintf("memory saved (id: %s, type: %s)", mem.ID, mem.MemoryType)), nil
@@ -361,6 +366,11 @@ func handleFactRecord(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallTo
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode >= 400 {
+		var errBody map[string]string
+		json.NewDecoder(resp.Body).Decode(&errBody)
+		return mcp.NewToolResultError(fmt.Sprintf("fact_record failed (status %d): %s", resp.StatusCode, errBody["error"])), nil
+	}
 	var result map[string]string
 	json.NewDecoder(resp.Body).Decode(&result)
 	return mcp.NewToolResultText(fmt.Sprintf("fact recorded (id: %s)", result["id"])), nil
@@ -472,6 +482,11 @@ func handleDigestSession(ctx context.Context, req mcp.CallToolRequest) (*mcp.Cal
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode >= 400 {
+		var errBody map[string]string
+		json.NewDecoder(resp.Body).Decode(&errBody)
+		return mcp.NewToolResultError(fmt.Sprintf("digest failed (status %d): %s", resp.StatusCode, errBody["error"])), nil
+	}
 	var result MineResponse
 	json.NewDecoder(resp.Body).Decode(&result)
 	return mcp.NewToolResultText(fmt.Sprintf("digest session: %s (path: %s)", result.Status, path)), nil
