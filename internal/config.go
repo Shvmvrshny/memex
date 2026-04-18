@@ -18,6 +18,8 @@ type Config struct {
 	Port         string
 	QdrantURL    string
 	OllamaURL    string
+	OllamaModel  string // LLM model for enrichment (OLLAMA_MODEL env var)
+	RepoRoot     string // absolute path to repo being indexed (REPO_ROOT env var)
 	IdentityPath string // ~/.memex/identity.md — L0 identity text
 	KGPath       string // ~/.memex/knowledge_graph.db — SQLite KG
 }
@@ -35,6 +37,14 @@ func LoadConfig() Config {
 	if ollamaURL == "" {
 		ollamaURL = "http://localhost:11434"
 	}
+	ollamaModel := os.Getenv("OLLAMA_MODEL")
+	if ollamaModel == "" {
+		ollamaModel = "llama3.2"
+	}
+	repoRoot := os.Getenv("REPO_ROOT")
+	if repoRoot == "" {
+		repoRoot = "."
+	}
 	home, _ := os.UserHomeDir()
 	identityPath := os.Getenv("IDENTITY_PATH")
 	if identityPath == "" {
@@ -48,6 +58,8 @@ func LoadConfig() Config {
 		Port:         port,
 		QdrantURL:    qdrantURL,
 		OllamaURL:    ollamaURL,
+		OllamaModel:  ollamaModel,
+		RepoRoot:     repoRoot,
 		IdentityPath: identityPath,
 		KGPath:       kgPath,
 	}

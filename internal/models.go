@@ -2,7 +2,7 @@ package memex
 
 import "time"
 
-// ValidMemoryTypes is the canonical set of 9 memory types.
+// ValidMemoryTypes is the canonical set of 10 memory types.
 var ValidMemoryTypes = map[string]bool{
 	"decision":   true,
 	"preference": true,
@@ -13,6 +13,7 @@ var ValidMemoryTypes = map[string]bool{
 	"context":    true,
 	"procedure":  true,
 	"rationale":  true,
+	"code_node":  true, // AST-derived retrieval node
 }
 
 type Memory struct {
