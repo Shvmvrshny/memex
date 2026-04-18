@@ -108,9 +108,9 @@ panic({0x12345, 0x678})
 	}
 }
 
-func TestClassifier_AllNineTypes_HaveAtLeastOneTest(t *testing.T) {
+func TestClassifier_AllMemoryTypes_HaveAtLeastOneTest(t *testing.T) {
 	expected := []string{"decision", "preference", "event", "discovery", "advice",
-		"problem", "context", "procedure", "rationale"}
+		"problem", "context", "procedure", "rationale", "code_node"}
 	for _, typ := range expected {
 		if !ValidMemoryTypes[typ] {
 			t.Errorf("memory type %q missing from ValidMemoryTypes — was it accidentally removed?", typ)
