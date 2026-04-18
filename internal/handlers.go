@@ -3,16 +3,18 @@ package memex
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 )
 
 type Handlers struct {
 	store Store
+	kg    *KnowledgeGraph
 }
 
-func NewHandlers(store Store) *Handlers {
-	return &Handlers{store: store}
+func NewHandlers(store Store, kg *KnowledgeGraph) *Handlers {
+	return &Handlers{store: store, kg: kg}
 }
 
 func writeJSONError(w http.ResponseWriter, msg string, code int) {
@@ -68,15 +70,19 @@ func (h *Handlers) SearchMemories(w http.ResponseWriter, r *http.Request) {
 			limit = n
 		}
 	}
+	var tags []string
+	if t := r.URL.Query().Get("tag"); t != "" {
+		tags = strings.Split(t, ",")
+	}
 
 	var (
 		memories []Memory
 		err      error
 	)
 	if query == "" {
-		memories, err = h.store.ListMemories(r.Context(), project, memoryType, topic, limit)
+		memories, err = h.store.ListMemories(r.Context(), project, memoryType, topic, tags, limit)
 	} else {
-		memories, err = h.store.SearchMemories(r.Context(), query, project, memoryType, topic, limit)
+		memories, err = h.store.SearchMemories(r.Context(), query, project, memoryType, topic, tags, limit)
 	}
 	if err != nil {
 		writeJSONError(w, "search failed", http.StatusInternalServerError)
@@ -192,6 +198,86 @@ func (h *Handlers) MineTranscript(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(MineResponse{Status: "mining started", Path: req.Path})
+}
+
+// ExpandSearch is the entry-point retrieval endpoint.
+// GET /memories/expand?entity=X&project=Y&limit=N
+//
+// It walks the KG outward from the named entity, builds an expanded query
+// from the entity name and all its direct neighbor objects, then runs a
+// semantic search so results are anchored to the graph structure rather
+// than raw cosine distance from the raw query string.
+func (h *Handlers) ExpandSearch(w http.ResponseWriter, r *http.Request) {
+	entity := r.URL.Query().Get("entity")
+	if entity == "" {
+		writeJSONError(w, "entity is required", http.StatusBadRequest)
+		return
+	}
+	project := r.URL.Query().Get("project")
+	limit := 10
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil && n > 0 {
+			limit = n
+		}
+	}
+
+	// Walk one hop outward from entity in the KG.
+	var neighbors []string
+	if h.kg != nil {
+		facts, err := h.kg.QueryEntity(entity, "")
+		if err == nil {
+			for _, f := range facts {
+				if f.Subject == entity {
+					neighbors = append(neighbors, f.Object)
+				}
+			}
+		}
+	}
+
+	// Build expanded query: entity name + all neighbor names.
+	parts := append([]string{entity}, neighbors...)
+	expandedQuery := strings.Join(parts, " ")
+
+	// L1: pinned structural anchors for the project (importance >= 0.9).
+	// These are guaranteed entry points regardless of cosine distance.
+	pinned, _ := h.store.PinnedMemories(r.Context(), project)
+
+	// L2: semantic search using the KG-expanded query.
+	semantic, err := h.store.SearchMemories(r.Context(), expandedQuery, project, "", "", nil, limit)
+	if err != nil {
+		writeJSONError(w, "expand search failed", http.StatusInternalServerError)
+		return
+	}
+
+	// Merge L1 + L2, deduplicate by ID, sort by importance desc.
+	seen := make(map[string]bool)
+	var merged []Memory
+	for _, m := range pinned {
+		if !seen[m.ID] {
+			seen[m.ID] = true
+			merged = append(merged, m)
+		}
+	}
+	for _, m := range semantic {
+		if !seen[m.ID] {
+			seen[m.ID] = true
+			merged = append(merged, m)
+		}
+	}
+	sort.Slice(merged, func(i, j int) bool {
+		return merged[i].Importance > merged[j].Importance
+	})
+	if len(merged) > limit {
+		merged = merged[:limit]
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"entity":         entity,
+		"neighbors":      neighbors,
+		"expanded_query": expandedQuery,
+		"memories":       merged,
+	})
 }
 
 // FindSimilar returns the most similar memories to the given text.

@@ -42,11 +42,11 @@ func (m *mockStore) SaveMemory(ctx context.Context, req SaveMemoryRequest) (Memo
 	return mem, nil
 }
 
-func (m *mockStore) SearchMemories(ctx context.Context, query, project, memoryType, topic string, limit int) ([]Memory, error) {
+func (m *mockStore) SearchMemories(ctx context.Context, query, project, memoryType, topic string, tags []string, limit int) ([]Memory, error) {
 	return m.memories, m.err
 }
 
-func (m *mockStore) ListMemories(ctx context.Context, project, memoryType, topic string, limit int) ([]Memory, error) {
+func (m *mockStore) ListMemories(ctx context.Context, project, memoryType, topic string, tags []string, limit int) ([]Memory, error) {
 	return m.memories, m.err
 }
 
@@ -68,7 +68,7 @@ func (m *mockStore) DeleteMemory(ctx context.Context, id string) error { return 
 // ── Health ──────────────────────────────────────────────────────────────────
 
 func TestHealthHandler_OK(t *testing.T) {
-	h := NewHandlers(&mockStore{})
+	h := NewHandlers(&mockStore{}, nil)
 	r := httptest.NewRequest(http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
 	h.Health(w, r)
@@ -78,7 +78,7 @@ func TestHealthHandler_OK(t *testing.T) {
 }
 
 func TestHealthHandler_Down(t *testing.T) {
-	h := NewHandlers(&mockStore{err: errors.New("qdrant down")})
+	h := NewHandlers(&mockStore{err: errors.New("qdrant down")}, nil)
 	r := httptest.NewRequest(http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
 	h.Health(w, r)
@@ -90,7 +90,7 @@ func TestHealthHandler_Down(t *testing.T) {
 // ── SaveMemory ───────────────────────────────────────────────────────────────
 
 func TestSaveMemoryHandler(t *testing.T) {
-	h := NewHandlers(&mockStore{})
+	h := NewHandlers(&mockStore{}, nil)
 	body, _ := json.Marshal(SaveMemoryRequest{
 		Text:       "user prefers Go",
 		Project:    "memex",
@@ -114,7 +114,7 @@ func TestSaveMemoryHandler(t *testing.T) {
 }
 
 func TestSaveMemoryHandler_MissingText(t *testing.T) {
-	h := NewHandlers(&mockStore{})
+	h := NewHandlers(&mockStore{}, nil)
 	body, _ := json.Marshal(SaveMemoryRequest{Project: "memex", MemoryType: "preference"})
 	r := httptest.NewRequest(http.MethodPost, "/memories", bytes.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
@@ -126,7 +126,7 @@ func TestSaveMemoryHandler_MissingText(t *testing.T) {
 }
 
 func TestSaveMemoryHandler_MissingMemoryType(t *testing.T) {
-	h := NewHandlers(&mockStore{})
+	h := NewHandlers(&mockStore{}, nil)
 	body, _ := json.Marshal(SaveMemoryRequest{Text: "user prefers Go", Project: "memex"})
 	r := httptest.NewRequest(http.MethodPost, "/memories", bytes.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
@@ -138,7 +138,7 @@ func TestSaveMemoryHandler_MissingMemoryType(t *testing.T) {
 }
 
 func TestSaveMemoryHandler_InvalidMemoryType(t *testing.T) {
-	h := NewHandlers(&mockStore{})
+	h := NewHandlers(&mockStore{}, nil)
 	body, _ := json.Marshal(SaveMemoryRequest{Text: "x", Project: "memex", MemoryType: "invalid_type"})
 	r := httptest.NewRequest(http.MethodPost, "/memories", bytes.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
@@ -153,7 +153,7 @@ func TestSaveMemoryHandler_InvalidMemoryType(t *testing.T) {
 
 func TestSearchMemoriesHandler(t *testing.T) {
 	store := &mockStore{memories: []Memory{{ID: "1", Text: "user prefers Python", MemoryType: "preference"}}}
-	h := NewHandlers(store)
+	h := NewHandlers(store, nil)
 	r := httptest.NewRequest(http.MethodGet, "/memories?context=python&limit=5", nil)
 	w := httptest.NewRecorder()
 	h.SearchMemories(w, r)
@@ -169,7 +169,7 @@ func TestSearchMemoriesHandler(t *testing.T) {
 
 func TestSearchMemoriesHandler_TypeFilter(t *testing.T) {
 	store := &mockStore{memories: []Memory{{ID: "1", Text: "use Postgres", MemoryType: "decision"}}}
-	h := NewHandlers(store)
+	h := NewHandlers(store, nil)
 	r := httptest.NewRequest(http.MethodGet, "/memories?memory_type=decision&project=memex", nil)
 	w := httptest.NewRecorder()
 	h.SearchMemories(w, r)
@@ -181,7 +181,7 @@ func TestSearchMemoriesHandler_TypeFilter(t *testing.T) {
 // ── Summarize ────────────────────────────────────────────────────────────────
 
 func TestSummarizeHandler(t *testing.T) {
-	h := NewHandlers(&mockStore{})
+	h := NewHandlers(&mockStore{}, nil)
 	body, _ := json.Marshal(SaveMemoryRequest{
 		Text:    "session: worked on memex Go service",
 		Project: "memex",
@@ -205,7 +205,7 @@ func TestSummarizeHandler(t *testing.T) {
 func TestPinnedMemoriesHandler(t *testing.T) {
 	pinned := Memory{ID: "pin-1", Text: "critical preference", MemoryType: "preference", Importance: 1.0}
 	store := &mockStore{memories: []Memory{pinned}}
-	h := NewHandlers(store)
+	h := NewHandlers(store, nil)
 	r := httptest.NewRequest(http.MethodGet, "/memories/pinned?project=memex", nil)
 	w := httptest.NewRecorder()
 	h.PinnedMemories(w, r)
@@ -223,7 +223,7 @@ func TestPinnedMemoriesHandler(t *testing.T) {
 }
 
 func TestPinnedMemoriesHandler_MissingProject(t *testing.T) {
-	h := NewHandlers(&mockStore{})
+	h := NewHandlers(&mockStore{}, nil)
 	r := httptest.NewRequest(http.MethodGet, "/memories/pinned", nil)
 	w := httptest.NewRecorder()
 	h.PinnedMemories(w, r)
@@ -236,7 +236,7 @@ func TestPinnedMemoriesHandler_MissingProject(t *testing.T) {
 
 func TestFindSimilarHandler(t *testing.T) {
 	store := &mockStore{memories: []Memory{{ID: "1", Text: "user prefers Python", MemoryType: "preference"}}}
-	h := NewHandlers(store)
+	h := NewHandlers(store, nil)
 	r := httptest.NewRequest(http.MethodGet, "/memories/similar?text=python+preference", nil)
 	w := httptest.NewRecorder()
 	h.FindSimilar(w, r)
@@ -246,7 +246,7 @@ func TestFindSimilarHandler(t *testing.T) {
 }
 
 func TestFindSimilarHandler_MissingText(t *testing.T) {
-	h := NewHandlers(&mockStore{})
+	h := NewHandlers(&mockStore{}, nil)
 	r := httptest.NewRequest(http.MethodGet, "/memories/similar", nil)
 	w := httptest.NewRecorder()
 	h.FindSimilar(w, r)
@@ -261,7 +261,7 @@ func TestHandlers_MineTranscript(t *testing.T) {
 	os.WriteFile(path, []byte(`{"role":"user","content":"I prefer table-driven tests."}`+"\n"), 0644)
 
 	store := &mockStore{}
-	h := NewHandlers(store)
+	h := NewHandlers(store, nil)
 
 	body := MineRequest{Path: path, Project: "memex"}
 	bodyBytes, _ := json.Marshal(body)

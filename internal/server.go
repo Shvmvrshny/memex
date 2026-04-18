@@ -28,7 +28,7 @@ func RunServe() {
 		log.Fatalf("init knowledge graph schema: %v", err)
 	}
 
-	h := NewHandlers(store)
+	h := NewHandlers(store, kg)
 	th := NewTraceHandlers(store, traceStore)
 	kgh := NewKGHandlers(kg)
 
@@ -43,6 +43,8 @@ func RunServe() {
 			h.PinnedMemories(w, r)
 		case path == "similar" && r.Method == http.MethodGet:
 			h.FindSimilar(w, r)
+		case path == "expand" && r.Method == http.MethodGet:
+			h.ExpandSearch(w, r)
 		case strings.HasSuffix(path, "/pin") && r.Method == http.MethodPatch:
 			h.PinMemory(w, r)
 		case r.Method == http.MethodDelete:

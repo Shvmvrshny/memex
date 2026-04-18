@@ -17,7 +17,7 @@ func mustClauseCount(filter map[string]any) int {
 }
 
 func TestBuildFilter_ProjectOnly(t *testing.T) {
-	f := buildFilter("memex", "", "")
+	f := buildFilter("memex", "", "", nil)
 	if f == nil {
 		t.Fatal("expected non-nil filter for project only")
 	}
@@ -31,7 +31,7 @@ func TestBuildFilter_ProjectOnly(t *testing.T) {
 }
 
 func TestBuildFilter_ProjectAndType(t *testing.T) {
-	f := buildFilter("memex", "decision", "")
+	f := buildFilter("memex", "decision", "", nil)
 	if f == nil {
 		t.Fatal("expected non-nil filter")
 	}
@@ -41,7 +41,7 @@ func TestBuildFilter_ProjectAndType(t *testing.T) {
 }
 
 func TestBuildFilter_ProjectAndTopic(t *testing.T) {
-	f := buildFilter("memex", "", "testing")
+	f := buildFilter("memex", "", "testing", nil)
 	if f == nil {
 		t.Fatal("expected non-nil filter")
 	}
@@ -51,7 +51,7 @@ func TestBuildFilter_ProjectAndTopic(t *testing.T) {
 }
 
 func TestBuildFilter_AllThree(t *testing.T) {
-	f := buildFilter("memex", "preference", "testing")
+	f := buildFilter("memex", "preference", "testing", nil)
 	if f == nil {
 		t.Fatal("expected non-nil filter")
 	}
@@ -61,14 +61,14 @@ func TestBuildFilter_AllThree(t *testing.T) {
 }
 
 func TestBuildFilter_Empty_ReturnsNil(t *testing.T) {
-	f := buildFilter("", "", "")
+	f := buildFilter("", "", "", nil)
 	if f != nil {
 		t.Errorf("all-empty filter should return nil, got %+v", f)
 	}
 }
 
 func TestBuildFilter_TypeOnly(t *testing.T) {
-	f := buildFilter("", "decision", "")
+	f := buildFilter("", "decision", "", nil)
 	if f == nil {
 		t.Fatal("expected non-nil filter for type only")
 	}
@@ -78,7 +78,7 @@ func TestBuildFilter_TypeOnly(t *testing.T) {
 }
 
 func TestBuildFilter_SerializesCorrectly(t *testing.T) {
-	f := buildFilter("memex", "decision", "kg")
+	f := buildFilter("memex", "decision", "kg", nil)
 	data, err := json.Marshal(f)
 	if err != nil {
 		t.Fatalf("json.Marshal filter: %v", err)

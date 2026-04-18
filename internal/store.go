@@ -6,11 +6,13 @@ type Store interface {
 	Init(ctx context.Context) error
 	SaveMemory(ctx context.Context, req SaveMemoryRequest) (Memory, error)
 
-	// SearchMemories performs semantic search. memoryType and topic are optional ("" = no filter).
-	SearchMemories(ctx context.Context, query, project, memoryType, topic string, limit int) ([]Memory, error)
+	// SearchMemories performs semantic search. memoryType, topic, and tags are optional filters.
+	// Tags apply a soft scoring boost in ListMemories fallback; in vector search they filter hard.
+	SearchMemories(ctx context.Context, query, project, memoryType, topic string, tags []string, limit int) ([]Memory, error)
 
-	// ListMemories lists memories by recency+importance score. memoryType and topic are optional.
-	ListMemories(ctx context.Context, project, memoryType, topic string, limit int) ([]Memory, error)
+	// ListMemories lists memories by recency+importance score. memoryType, topic, and tags are optional.
+	// Tags apply a +0.15 soft boost to the ranking score (no hard filter).
+	ListMemories(ctx context.Context, project, memoryType, topic string, tags []string, limit int) ([]Memory, error)
 
 	// PinnedMemories returns memories with importance >= 0.9 for the project, sorted desc.
 	PinnedMemories(ctx context.Context, project string) ([]Memory, error)

@@ -80,9 +80,9 @@ func (q *QdrantStore) createCollection(ctx context.Context) error {
 	return nil
 }
 
-// buildFilter constructs a Qdrant filter from optional project/memoryType/topic values.
+// buildFilter constructs a Qdrant filter from optional project/memoryType/topic/tags values.
 // Returns nil when all are empty (no filter).
-func buildFilter(project, memoryType, topic string) map[string]any {
+func buildFilter(project, memoryType, topic string, tags []string) map[string]any {
 	var conditions []map[string]any
 	if project != "" {
 		conditions = append(conditions, map[string]any{
@@ -97,6 +97,11 @@ func buildFilter(project, memoryType, topic string) map[string]any {
 	if topic != "" {
 		conditions = append(conditions, map[string]any{
 			"key": "topic", "match": map[string]any{"value": topic},
+		})
+	}
+	for _, tag := range tags {
+		conditions = append(conditions, map[string]any{
+			"key": "tags", "match": map[string]any{"value": tag},
 		})
 	}
 	if len(conditions) == 0 {
@@ -200,14 +205,14 @@ func (q *QdrantStore) vectorSearch(ctx context.Context, body map[string]any) ([]
 	return memories, nil
 }
 
-func (q *QdrantStore) SearchMemories(ctx context.Context, query, project, memoryType, topic string, limit int) ([]Memory, error) {
+func (q *QdrantStore) SearchMemories(ctx context.Context, query, project, memoryType, topic string, tags []string, limit int) ([]Memory, error) {
 	if limit <= 0 {
 		limit = 5
 	}
 	vector, err := q.embed(ctx, query)
 	if err != nil {
 		log.Printf("memex: embed fallback in SearchMemories: %v", err)
-		return q.ListMemories(ctx, project, memoryType, topic, limit)
+		return q.ListMemories(ctx, project, memoryType, topic, tags, limit)
 	}
 	body := map[string]any{
 		"vector":       vector,
@@ -215,13 +220,13 @@ func (q *QdrantStore) SearchMemories(ctx context.Context, query, project, memory
 		"with_payload": true,
 		"with_vector":  false,
 	}
-	if f := buildFilter(project, memoryType, topic); f != nil {
+	if f := buildFilter(project, memoryType, topic, tags); f != nil {
 		body["filter"] = f
 	}
 	return q.vectorSearch(ctx, body)
 }
 
-func (q *QdrantStore) ListMemories(ctx context.Context, project, memoryType, topic string, limit int) ([]Memory, error) {
+func (q *QdrantStore) ListMemories(ctx context.Context, project, memoryType, topic string, tags []string, limit int) ([]Memory, error) {
 	if limit <= 0 {
 		limit = 10
 	}
@@ -235,7 +240,7 @@ func (q *QdrantStore) ListMemories(ctx context.Context, project, memoryType, top
 		"with_payload": true,
 		"with_vector":  false,
 	}
-	if f := buildFilter(project, memoryType, topic); f != nil {
+	if f := buildFilter(project, memoryType, topic, nil); f != nil {
 		body["filter"] = f
 	}
 
@@ -244,11 +249,25 @@ func (q *QdrantStore) ListMemories(ctx context.Context, project, memoryType, top
 		return nil, err
 	}
 
+	// Build a tag boost set for O(1) lookup.
+	boostTags := make(map[string]bool, len(tags))
+	for _, t := range tags {
+		boostTags[t] = true
+	}
+
 	now := time.Now()
 	score := func(m Memory) float64 {
 		days := now.Sub(m.Timestamp).Hours() / 24
 		recency := 1.0 / (1.0 + days/30.0)
-		return 0.6*float64(m.Importance) + 0.4*recency
+		base := 0.6*float64(m.Importance) + 0.4*recency
+		// Soft boost: +0.15 if any memory tag matches the requested tags.
+		for _, t := range m.Tags {
+			if boostTags[t] {
+				base += 0.15
+				break
+			}
+		}
+		return base
 	}
 	sort.Slice(memories, func(i, j int) bool {
 		return score(memories[i]) > score(memories[j])

@@ -101,7 +101,7 @@ func RunStoreContractTests(t *testing.T, store Store) {
 		if err := store.DeleteMemory(ctx, m.ID); err != nil {
 			t.Fatalf("DeleteMemory: %v", err)
 		}
-		memories, _ := store.ListMemories(ctx, "del-test", "", "", 10)
+		memories, _ := store.ListMemories(ctx, "del-test", "", "", nil, 10)
 		for _, mem := range memories {
 			if mem.ID == m.ID {
 				t.Error("deleted memory still appears in ListMemories")

@@ -61,11 +61,11 @@ func (f *fakeStore) SaveMemory(_ context.Context, req SaveMemoryRequest) (Memory
 	return m, nil
 }
 
-func (f *fakeStore) SearchMemories(_ context.Context, query, project, memoryType, topic string, limit int) ([]Memory, error) {
-	return f.ListMemories(context.Background(), project, memoryType, topic, limit)
+func (f *fakeStore) SearchMemories(_ context.Context, query, project, memoryType, topic string, tags []string, limit int) ([]Memory, error) {
+	return f.ListMemories(context.Background(), project, memoryType, topic, tags, limit)
 }
 
-func (f *fakeStore) ListMemories(_ context.Context, project, memoryType, topic string, limit int) ([]Memory, error) {
+func (f *fakeStore) ListMemories(_ context.Context, project, memoryType, topic string, tags []string, limit int) ([]Memory, error) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	var result []Memory

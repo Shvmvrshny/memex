@@ -141,7 +141,7 @@ func TestQdrantSearchMemories_FallbackToList(t *testing.T) {
 	defer srv.Close()
 
 	store := NewQdrantStore(srv.URL, srv.URL)
-	memories, err := store.SearchMemories(context.Background(), "python language", "", "", "", 5)
+	memories, err := store.SearchMemories(context.Background(), "python language", "", "", "", nil, 5)
 	if err != nil {
 		t.Fatalf("SearchMemories: %v", err)
 	}
