@@ -288,3 +288,26 @@ func TestKG_ExpireActiveFactsByPrefix(t *testing.T) {
 		t.Fatalf("expired=%d, want 1", n)
 	}
 }
+
+func TestKG_LatestCommitHash_Empty(t *testing.T) {
+	kg := newTestKG(t)
+	if got := kg.LatestCommitHash(); got != "working-tree" {
+		t.Errorf("expected working-tree, got %s", got)
+	}
+}
+
+func TestKG_LatestCommitHash_WithFact(t *testing.T) {
+	kg := newTestKG(t)
+	_, _ = kg.RecordFactScoped(Fact{
+		Subject:    "a",
+		Predicate:  "p",
+		Object:     "b",
+		CommitHash: "deadbeef",
+		FilePath:   "x.go",
+		Source:     "ast",
+		Confidence: 1,
+	}, false)
+	if got := kg.LatestCommitHash(); got != "deadbeef" {
+		t.Errorf("expected deadbeef, got %s", got)
+	}
+}

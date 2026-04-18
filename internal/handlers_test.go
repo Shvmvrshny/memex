@@ -74,7 +74,7 @@ func (m *mockStore) DeleteMemory(ctx context.Context, id string) error { return 
 // ── Health ──────────────────────────────────────────────────────────────────
 
 func TestHealthHandler_OK(t *testing.T) {
-	h := NewHandlers(&mockStore{}, nil)
+	h := NewHandlers(&mockStore{}, nil, nil)
 	r := httptest.NewRequest(http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
 	h.Health(w, r)
@@ -84,7 +84,7 @@ func TestHealthHandler_OK(t *testing.T) {
 }
 
 func TestHealthHandler_Down(t *testing.T) {
-	h := NewHandlers(&mockStore{err: errors.New("qdrant down")}, nil)
+	h := NewHandlers(&mockStore{err: errors.New("qdrant down")}, nil, nil)
 	r := httptest.NewRequest(http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
 	h.Health(w, r)
@@ -96,7 +96,7 @@ func TestHealthHandler_Down(t *testing.T) {
 // ── SaveMemory ───────────────────────────────────────────────────────────────
 
 func TestSaveMemoryHandler(t *testing.T) {
-	h := NewHandlers(&mockStore{}, nil)
+	h := NewHandlers(&mockStore{}, nil, nil)
 	body, _ := json.Marshal(SaveMemoryRequest{
 		Text:       "user prefers Go",
 		Project:    "memex",
@@ -120,7 +120,7 @@ func TestSaveMemoryHandler(t *testing.T) {
 }
 
 func TestSaveMemoryHandler_MissingText(t *testing.T) {
-	h := NewHandlers(&mockStore{}, nil)
+	h := NewHandlers(&mockStore{}, nil, nil)
 	body, _ := json.Marshal(SaveMemoryRequest{Project: "memex", MemoryType: "preference"})
 	r := httptest.NewRequest(http.MethodPost, "/memories", bytes.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
@@ -132,7 +132,7 @@ func TestSaveMemoryHandler_MissingText(t *testing.T) {
 }
 
 func TestSaveMemoryHandler_MissingMemoryType(t *testing.T) {
-	h := NewHandlers(&mockStore{}, nil)
+	h := NewHandlers(&mockStore{}, nil, nil)
 	body, _ := json.Marshal(SaveMemoryRequest{Text: "user prefers Go", Project: "memex"})
 	r := httptest.NewRequest(http.MethodPost, "/memories", bytes.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
@@ -144,7 +144,7 @@ func TestSaveMemoryHandler_MissingMemoryType(t *testing.T) {
 }
 
 func TestSaveMemoryHandler_InvalidMemoryType(t *testing.T) {
-	h := NewHandlers(&mockStore{}, nil)
+	h := NewHandlers(&mockStore{}, nil, nil)
 	body, _ := json.Marshal(SaveMemoryRequest{Text: "x", Project: "memex", MemoryType: "invalid_type"})
 	r := httptest.NewRequest(http.MethodPost, "/memories", bytes.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
@@ -159,7 +159,7 @@ func TestSaveMemoryHandler_InvalidMemoryType(t *testing.T) {
 
 func TestSearchMemoriesHandler(t *testing.T) {
 	store := &mockStore{memories: []Memory{{ID: "1", Text: "user prefers Python", MemoryType: "preference"}}}
-	h := NewHandlers(store, nil)
+	h := NewHandlers(store, nil, nil)
 	r := httptest.NewRequest(http.MethodGet, "/memories?context=python&limit=5", nil)
 	w := httptest.NewRecorder()
 	h.SearchMemories(w, r)
@@ -175,7 +175,7 @@ func TestSearchMemoriesHandler(t *testing.T) {
 
 func TestSearchMemoriesHandler_TypeFilter(t *testing.T) {
 	store := &mockStore{memories: []Memory{{ID: "1", Text: "use Postgres", MemoryType: "decision"}}}
-	h := NewHandlers(store, nil)
+	h := NewHandlers(store, nil, nil)
 	r := httptest.NewRequest(http.MethodGet, "/memories?memory_type=decision&project=memex", nil)
 	w := httptest.NewRecorder()
 	h.SearchMemories(w, r)
@@ -187,7 +187,7 @@ func TestSearchMemoriesHandler_TypeFilter(t *testing.T) {
 // ── Summarize ────────────────────────────────────────────────────────────────
 
 func TestSummarizeHandler(t *testing.T) {
-	h := NewHandlers(&mockStore{}, nil)
+	h := NewHandlers(&mockStore{}, nil, nil)
 	body, _ := json.Marshal(SaveMemoryRequest{
 		Text:    "session: worked on memex Go service",
 		Project: "memex",
@@ -211,7 +211,7 @@ func TestSummarizeHandler(t *testing.T) {
 func TestPinnedMemoriesHandler(t *testing.T) {
 	pinned := Memory{ID: "pin-1", Text: "critical preference", MemoryType: "preference", Importance: 1.0}
 	store := &mockStore{memories: []Memory{pinned}}
-	h := NewHandlers(store, nil)
+	h := NewHandlers(store, nil, nil)
 	r := httptest.NewRequest(http.MethodGet, "/memories/pinned?project=memex", nil)
 	w := httptest.NewRecorder()
 	h.PinnedMemories(w, r)
@@ -229,7 +229,7 @@ func TestPinnedMemoriesHandler(t *testing.T) {
 }
 
 func TestPinnedMemoriesHandler_MissingProject(t *testing.T) {
-	h := NewHandlers(&mockStore{}, nil)
+	h := NewHandlers(&mockStore{}, nil, nil)
 	r := httptest.NewRequest(http.MethodGet, "/memories/pinned", nil)
 	w := httptest.NewRecorder()
 	h.PinnedMemories(w, r)
@@ -242,7 +242,7 @@ func TestPinnedMemoriesHandler_MissingProject(t *testing.T) {
 
 func TestFindSimilarHandler(t *testing.T) {
 	store := &mockStore{memories: []Memory{{ID: "1", Text: "user prefers Python", MemoryType: "preference"}}}
-	h := NewHandlers(store, nil)
+	h := NewHandlers(store, nil, nil)
 	r := httptest.NewRequest(http.MethodGet, "/memories/similar?text=python+preference", nil)
 	w := httptest.NewRecorder()
 	h.FindSimilar(w, r)
@@ -252,7 +252,7 @@ func TestFindSimilarHandler(t *testing.T) {
 }
 
 func TestFindSimilarHandler_MissingText(t *testing.T) {
-	h := NewHandlers(&mockStore{}, nil)
+	h := NewHandlers(&mockStore{}, nil, nil)
 	r := httptest.NewRequest(http.MethodGet, "/memories/similar", nil)
 	w := httptest.NewRecorder()
 	h.FindSimilar(w, r)
@@ -267,7 +267,7 @@ func TestHandlers_MineTranscript(t *testing.T) {
 	os.WriteFile(path, []byte(`{"role":"user","content":"I prefer table-driven tests."}`+"\n"), 0644)
 
 	store := &mockStore{}
-	h := NewHandlers(store, nil)
+	h := NewHandlers(store, nil, nil)
 
 	body := MineRequest{Path: path, Project: "memex"}
 	bodyBytes, _ := json.Marshal(body)
@@ -303,7 +303,7 @@ func TestExpandSearch_UsesKGTraversalWithDefaults(t *testing.T) {
 			return []Memory{{ID: "s1", Text: "semantic", Importance: 0.4}}, nil
 		},
 	}
-	h := NewHandlers(store, kg)
+	h := NewHandlers(store, kg, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/memories/expand?entity=A&project=memex&limit=5", nil)
 	w := httptest.NewRecorder()
@@ -345,7 +345,7 @@ func TestExpandSearch_DepthAndFanoutControls(t *testing.T) {
 			return []Memory{{ID: "s1", Text: fmt.Sprintf("q:%s", query), Importance: 0.2}}, nil
 		},
 	}
-	h := NewHandlers(store, kg)
+	h := NewHandlers(store, kg, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/memories/expand?entity=root&depth=2&fanout=1&predicates=calls", nil)
 	w := httptest.NewRecorder()
@@ -371,7 +371,7 @@ func TestExpandSearch_ReverseContainsReturnsFileAnchors(t *testing.T) {
 		Source:    "ast",
 	}, false)
 
-	h := NewHandlers(&mockStore{memories: []Memory{}}, kg)
+	h := NewHandlers(&mockStore{memories: []Memory{}}, kg, nil)
 	req := httptest.NewRequest(http.MethodGet, "/memories/expand?entity=github.com/shivamvarshney/memex/internal::hookSessionStart&project=memex&limit=5", nil)
 	w := httptest.NewRecorder()
 	h.ExpandSearch(w, req)
@@ -396,7 +396,7 @@ func TestExpandSearch_ReverseCallsReturnsCallers(t *testing.T) {
 		Source:    "ast",
 	}, false)
 
-	h := NewHandlers(&mockStore{memories: []Memory{}}, kg)
+	h := NewHandlers(&mockStore{memories: []Memory{}}, kg, nil)
 	req := httptest.NewRequest(http.MethodGet, "/memories/expand?entity=github.com/shivamvarshney/memex/internal::Callee&project=memex&limit=5", nil)
 	w := httptest.NewRecorder()
 	h.ExpandSearch(w, req)
@@ -429,7 +429,7 @@ func TestExpandSearch_ReverseCallsAlsoProjectCallerFiles(t *testing.T) {
 		Source:    "ast",
 	}, false)
 
-	h := NewHandlers(&mockStore{memories: []Memory{}}, kg)
+	h := NewHandlers(&mockStore{memories: []Memory{}}, kg, nil)
 	req := httptest.NewRequest(http.MethodGet, "/memories/expand?entity="+calleeFn+"&project=memex&limit=5&depth=2", nil)
 	w := httptest.NewRecorder()
 	h.ExpandSearch(w, req)
@@ -461,7 +461,7 @@ func TestExpandSearch_TestOfLinksBringInTestFiles(t *testing.T) {
 		Source:    "ast",
 	}, false)
 
-	h := NewHandlers(&mockStore{memories: []Memory{}}, kg)
+	h := NewHandlers(&mockStore{memories: []Memory{}}, kg, nil)
 	req := httptest.NewRequest(http.MethodGet, "/memories/expand?entity="+fn+"&project=memex&limit=5&depth=2", nil)
 	w := httptest.NewRecorder()
 	h.ExpandSearch(w, req)
@@ -493,7 +493,7 @@ func TestExpandSearch_PrioritizesFileAnchorsUnderFanout(t *testing.T) {
 		Source:    "ast",
 	}, false)
 
-	h := NewHandlers(&mockStore{memories: []Memory{}}, kg)
+	h := NewHandlers(&mockStore{memories: []Memory{}}, kg, nil)
 	req := httptest.NewRequest(http.MethodGet, "/memories/expand?entity="+fn+"&project=memex&limit=5&fanout=1&depth=1", nil)
 	w := httptest.NewRecorder()
 	h.ExpandSearch(w, req)

@@ -329,6 +329,23 @@ func (kg *KnowledgeGraph) Stats() (KGStats, error) {
 	return stats, nil
 }
 
+// LatestCommitHash returns the commit_hash most recently inserted into active facts.
+// Returns "working-tree" if no commit hash is available.
+func (kg *KnowledgeGraph) LatestCommitHash() string {
+	row := kg.db.QueryRow(
+		`SELECT commit_hash
+		 FROM facts
+		 WHERE commit_hash IS NOT NULL AND commit_hash != '' AND valid_until IS NULL
+		 ORDER BY created_at DESC
+		 LIMIT 1`,
+	)
+	var h string
+	if err := row.Scan(&h); err != nil || strings.TrimSpace(h) == "" {
+		return "working-tree"
+	}
+	return h
+}
+
 // ArchitectureSummary returns top-level local packages and their depends_on edges.
 func (kg *KnowledgeGraph) ArchitectureSummary(project string, maxPackages, maxDeps int) ([]PackageDependency, error) {
 	if maxPackages <= 0 {

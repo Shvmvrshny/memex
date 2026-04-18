@@ -28,7 +28,8 @@ func RunServe() {
 		log.Fatalf("init knowledge graph schema: %v", err)
 	}
 
-	h := NewHandlers(store, kg)
+	enricher := NewEnricher(store, kg, cfg.OllamaURL, cfg.OllamaModel, cfg.RepoRoot)
+	h := NewHandlers(store, kg, enricher)
 	th := NewTraceHandlers(store, traceStore)
 	kgh := NewKGHandlers(kg)
 

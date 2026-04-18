@@ -9,12 +9,13 @@ import (
 )
 
 type Handlers struct {
-	store Store
-	kg    *KnowledgeGraph
+	store    Store
+	kg       *KnowledgeGraph
+	enricher *Enricher
 }
 
-func NewHandlers(store Store, kg *KnowledgeGraph) *Handlers {
-	return &Handlers{store: store, kg: kg}
+func NewHandlers(store Store, kg *KnowledgeGraph, enricher *Enricher) *Handlers {
+	return &Handlers{store: store, kg: kg, enricher: enricher}
 }
 
 func writeJSONError(w http.ResponseWriter, msg string, code int) {
@@ -228,6 +229,15 @@ func (h *Handlers) ExpandSearch(w http.ResponseWriter, r *http.Request) {
 	neighbors := []string{}
 	if h.kg != nil {
 		neighbors = h.expandNeighbors(entity, depth, fanout, maxNeighbors, predicateAllowlist)
+	}
+	// Trigger lazy LLM enrichment for function nodes surfaced by KG traversal.
+	if h.enricher != nil && h.kg != nil {
+		commitHash := h.kg.LatestCommitHash()
+		for _, n := range neighbors {
+			if strings.Contains(n, "::") { // function_id, not a file path
+				h.enricher.EnrichAsync(r.Context(), n, project, commitHash)
+			}
+		}
 	}
 
 	// Build expanded query: entity name + all neighbor names.
