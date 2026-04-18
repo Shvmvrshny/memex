@@ -3,6 +3,7 @@ package memex
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -27,7 +28,17 @@ func (h *KGHandlers) RecordFact(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "subject, predicate, and object are required", http.StatusBadRequest)
 		return
 	}
-	id, err := h.kg.RecordFact(req.Subject, req.Predicate, req.Object, req.ValidFrom, req.Source, req.Singular)
+	id, err := h.kg.RecordFactScoped(Fact{
+		Subject:    req.Subject,
+		Predicate:  req.Predicate,
+		Object:     req.Object,
+		ValidFrom:  req.ValidFrom,
+		Source:     req.Source,
+		FilePath:   req.FilePath,
+		CommitHash: req.CommitHash,
+		Confidence: req.Confidence,
+		MetaJSON:   req.MetaJSON,
+	}, req.Singular)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -107,4 +118,25 @@ func (h *KGHandlers) Stats(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(stats)
+}
+
+// Architecture handles GET /facts/architecture?project=X&limit=6
+func (h *KGHandlers) Architecture(w http.ResponseWriter, r *http.Request) {
+	project := strings.TrimSpace(r.URL.Query().Get("project"))
+	limit := 6
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	packages, err := h.kg.ArchitectureSummary(project, limit, 8)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"project":  project,
+		"packages": packages,
+	})
 }

@@ -5,18 +5,21 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
 
 type mockStore struct {
-	memories      []Memory
-	err           error
-	findSimilarFn func(ctx context.Context, text, project string, limit int) ([]Memory, error)
+	memories         []Memory
+	err              error
+	findSimilarFn    func(ctx context.Context, text, project string, limit int) ([]Memory, error)
+	searchMemoriesFn func(ctx context.Context, query, project, memoryType, topic string, tags []string, limit int) ([]Memory, error)
 }
 
 func (m *mockStore) Init(ctx context.Context) error   { return m.err }
@@ -43,6 +46,9 @@ func (m *mockStore) SaveMemory(ctx context.Context, req SaveMemoryRequest) (Memo
 }
 
 func (m *mockStore) SearchMemories(ctx context.Context, query, project, memoryType, topic string, tags []string, limit int) ([]Memory, error) {
+	if m.searchMemoriesFn != nil {
+		return m.searchMemoriesFn(ctx, query, project, memoryType, topic, tags, limit)
+	}
 	return m.memories, m.err
 }
 
@@ -279,4 +285,235 @@ func TestHandlers_MineTranscript(t *testing.T) {
 	if resp.Status != "mining started" {
 		t.Errorf("status = %q, want 'mining started'", resp.Status)
 	}
+}
+
+func TestExpandSearch_UsesKGTraversalWithDefaults(t *testing.T) {
+	kg := newTestKG(t)
+	// Root entity edges
+	_, _ = kg.RecordFactScoped(Fact{Subject: "A", Predicate: PredicateContainsFunction, Object: "B", Source: "ast"}, false)
+	_, _ = kg.RecordFactScoped(Fact{Subject: "A", Predicate: PredicateCalls, Object: "C", Source: "ast"}, false)
+	_, _ = kg.RecordFactScoped(Fact{Subject: "A", Predicate: PredicateDependsOn, Object: "pkgX", Source: "ast"}, false)
+	_, _ = kg.RecordFactScoped(Fact{Subject: "A", Predicate: PredicateCallsUnresolved, Object: "noise", Source: "ast"}, false)
+
+	var capturedQuery string
+	store := &mockStore{
+		memories: []Memory{{ID: "m1", Text: "result", Importance: 0.5}},
+		searchMemoriesFn: func(ctx context.Context, query, project, memoryType, topic string, tags []string, limit int) ([]Memory, error) {
+			capturedQuery = query
+			return []Memory{{ID: "s1", Text: "semantic", Importance: 0.4}}, nil
+		},
+	}
+	h := NewHandlers(store, kg)
+
+	req := httptest.NewRequest(http.MethodGet, "/memories/expand?entity=A&project=memex&limit=5", nil)
+	w := httptest.NewRecorder()
+	h.ExpandSearch(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if strings.Contains(capturedQuery, "noise") {
+		t.Fatalf("expanded query should not include unresolved edge target: %q", capturedQuery)
+	}
+
+	var resp struct {
+		Neighbors  []string `json:"neighbors"`
+		Depth      int      `json:"depth"`
+		Fanout     int      `json:"fanout"`
+		Predicates []string `json:"predicates"`
+	}
+	_ = json.NewDecoder(w.Body).Decode(&resp)
+	if resp.Depth != 1 {
+		t.Errorf("depth = %d, want 1", resp.Depth)
+	}
+	if resp.Fanout != 10 {
+		t.Errorf("fanout = %d, want 10", resp.Fanout)
+	}
+	if containsString(resp.Neighbors, "noise") {
+		t.Errorf("neighbors should exclude unresolved edges, got %+v", resp.Neighbors)
+	}
+}
+
+func TestExpandSearch_DepthAndFanoutControls(t *testing.T) {
+	kg := newTestKG(t)
+	_, _ = kg.RecordFactScoped(Fact{Subject: "root", Predicate: PredicateCalls, Object: "n1", Source: "ast"}, false)
+	_, _ = kg.RecordFactScoped(Fact{Subject: "root", Predicate: PredicateCalls, Object: "n2", Source: "ast"}, false)
+	_, _ = kg.RecordFactScoped(Fact{Subject: "n1", Predicate: PredicateCalls, Object: "leaf", Source: "ast"}, false)
+
+	store := &mockStore{
+		searchMemoriesFn: func(ctx context.Context, query, project, memoryType, topic string, tags []string, limit int) ([]Memory, error) {
+			return []Memory{{ID: "s1", Text: fmt.Sprintf("q:%s", query), Importance: 0.2}}, nil
+		},
+	}
+	h := NewHandlers(store, kg)
+
+	req := httptest.NewRequest(http.MethodGet, "/memories/expand?entity=root&depth=2&fanout=1&predicates=calls", nil)
+	w := httptest.NewRecorder()
+	h.ExpandSearch(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	var resp struct {
+		Neighbors []string `json:"neighbors"`
+	}
+	_ = json.NewDecoder(w.Body).Decode(&resp)
+	if len(resp.Neighbors) > 2 {
+		t.Errorf("neighbors should be capped by fanout traversal, got %d", len(resp.Neighbors))
+	}
+}
+
+func TestExpandSearch_ReverseContainsReturnsFileAnchors(t *testing.T) {
+	kg := newTestKG(t)
+	_, _ = kg.RecordFactScoped(Fact{
+		Subject:   "internal/hook.go",
+		Predicate: PredicateContainsFunction,
+		Object:    "github.com/shivamvarshney/memex/internal::hookSessionStart",
+		Source:    "ast",
+	}, false)
+
+	h := NewHandlers(&mockStore{memories: []Memory{}}, kg)
+	req := httptest.NewRequest(http.MethodGet, "/memories/expand?entity=github.com/shivamvarshney/memex/internal::hookSessionStart&project=memex&limit=5", nil)
+	w := httptest.NewRecorder()
+	h.ExpandSearch(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	var resp struct {
+		Neighbors []string `json:"neighbors"`
+	}
+	_ = json.NewDecoder(w.Body).Decode(&resp)
+	if !containsString(resp.Neighbors, "internal/hook.go") {
+		t.Fatalf("expected reverse contains to include file anchor, got %+v", resp.Neighbors)
+	}
+}
+
+func TestExpandSearch_ReverseCallsReturnsCallers(t *testing.T) {
+	kg := newTestKG(t)
+	_, _ = kg.RecordFactScoped(Fact{
+		Subject:   "github.com/shivamvarshney/memex/internal::Caller",
+		Predicate: PredicateCalls,
+		Object:    "github.com/shivamvarshney/memex/internal::Callee",
+		Source:    "ast",
+	}, false)
+
+	h := NewHandlers(&mockStore{memories: []Memory{}}, kg)
+	req := httptest.NewRequest(http.MethodGet, "/memories/expand?entity=github.com/shivamvarshney/memex/internal::Callee&project=memex&limit=5", nil)
+	w := httptest.NewRecorder()
+	h.ExpandSearch(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	var resp struct {
+		Neighbors []string `json:"neighbors"`
+	}
+	_ = json.NewDecoder(w.Body).Decode(&resp)
+	if !containsString(resp.Neighbors, "github.com/shivamvarshney/memex/internal::Caller") {
+		t.Fatalf("expected reverse calls to include caller, got %+v", resp.Neighbors)
+	}
+}
+
+func TestExpandSearch_ReverseCallsAlsoProjectCallerFiles(t *testing.T) {
+	kg := newTestKG(t)
+	callerFn := "github.com/shivamvarshney/memex/internal::KGHandlers.RecordFact"
+	calleeFn := "github.com/shivamvarshney/memex/internal::KnowledgeGraph.RecordFactScoped"
+	_, _ = kg.RecordFactScoped(Fact{
+		Subject:   "internal/kg_handlers.go",
+		Predicate: PredicateContainsFunction,
+		Object:    callerFn,
+		Source:    "ast",
+	}, false)
+	_, _ = kg.RecordFactScoped(Fact{
+		Subject:   callerFn,
+		Predicate: PredicateCalls,
+		Object:    calleeFn,
+		Source:    "ast",
+	}, false)
+
+	h := NewHandlers(&mockStore{memories: []Memory{}}, kg)
+	req := httptest.NewRequest(http.MethodGet, "/memories/expand?entity="+calleeFn+"&project=memex&limit=5&depth=2", nil)
+	w := httptest.NewRecorder()
+	h.ExpandSearch(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	var resp struct {
+		Neighbors []string `json:"neighbors"`
+	}
+	_ = json.NewDecoder(w.Body).Decode(&resp)
+	if !containsString(resp.Neighbors, "internal/kg_handlers.go") {
+		t.Fatalf("expected caller file anchor from reverse calls, got %+v", resp.Neighbors)
+	}
+}
+
+func TestExpandSearch_TestOfLinksBringInTestFiles(t *testing.T) {
+	kg := newTestKG(t)
+	fn := "github.com/shivamvarshney/memex/internal::hookSessionStart"
+	_, _ = kg.RecordFactScoped(Fact{
+		Subject:   "internal/hook.go",
+		Predicate: PredicateContainsFunction,
+		Object:    fn,
+		Source:    "ast",
+	}, false)
+	_, _ = kg.RecordFactScoped(Fact{
+		Subject:   "internal/hook_test.go",
+		Predicate: PredicateTestOf,
+		Object:    "internal/hook.go",
+		Source:    "ast",
+	}, false)
+
+	h := NewHandlers(&mockStore{memories: []Memory{}}, kg)
+	req := httptest.NewRequest(http.MethodGet, "/memories/expand?entity="+fn+"&project=memex&limit=5&depth=2", nil)
+	w := httptest.NewRecorder()
+	h.ExpandSearch(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	var resp struct {
+		Neighbors []string `json:"neighbors"`
+	}
+	_ = json.NewDecoder(w.Body).Decode(&resp)
+	if !containsString(resp.Neighbors, "internal/hook_test.go") {
+		t.Fatalf("expected test_of traversal to include hook_test.go, got %+v", resp.Neighbors)
+	}
+}
+
+func TestExpandSearch_PrioritizesFileAnchorsUnderFanout(t *testing.T) {
+	kg := newTestKG(t)
+	fn := "github.com/shivamvarshney/memex/internal::targetFn"
+	_, _ = kg.RecordFactScoped(Fact{
+		Subject:   fn,
+		Predicate: PredicateCalls,
+		Object:    "fmt::Sprintf",
+		Source:    "ast",
+	}, false)
+	_, _ = kg.RecordFactScoped(Fact{
+		Subject:   "internal/target.go",
+		Predicate: PredicateContainsFunction,
+		Object:    fn,
+		Source:    "ast",
+	}, false)
+
+	h := NewHandlers(&mockStore{memories: []Memory{}}, kg)
+	req := httptest.NewRequest(http.MethodGet, "/memories/expand?entity="+fn+"&project=memex&limit=5&fanout=1&depth=1", nil)
+	w := httptest.NewRecorder()
+	h.ExpandSearch(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	var resp struct {
+		Neighbors []string `json:"neighbors"`
+	}
+	_ = json.NewDecoder(w.Body).Decode(&resp)
+	if len(resp.Neighbors) == 0 || resp.Neighbors[0] != "internal/target.go" {
+		t.Fatalf("expected prioritized file anchor first under fanout=1, got %+v", resp.Neighbors)
+	}
+}
+
+func containsString(items []string, target string) bool {
+	for _, v := range items {
+		if v == target {
+			return true
+		}
+	}
+	return false
 }

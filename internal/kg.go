@@ -3,6 +3,9 @@ package memex
 import (
 	"database/sql"
 	"fmt"
+	"path"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -42,6 +45,10 @@ func (kg *KnowledgeGraph) Init() error {
 			valid_from  TEXT,
 			valid_until TEXT,
 			source      TEXT,
+			file_path   TEXT,
+			commit_hash TEXT,
+			confidence  REAL,
+			meta_json   TEXT,
 			created_at  TEXT NOT NULL
 		);
 		CREATE INDEX IF NOT EXISTS idx_facts_subject          ON facts(subject);
@@ -49,7 +56,26 @@ func (kg *KnowledgeGraph) Init() error {
 		CREATE INDEX IF NOT EXISTS idx_facts_subject_pred     ON facts(subject, predicate);
 		CREATE INDEX IF NOT EXISTS idx_facts_valid_until      ON facts(valid_until);
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+	// Backward-compatible migrations for DBs created before scoped fact columns existed.
+	if err := kg.ensureFactColumn("file_path", "TEXT"); err != nil {
+		return err
+	}
+	if err := kg.ensureFactColumn("commit_hash", "TEXT"); err != nil {
+		return err
+	}
+	if err := kg.ensureFactColumn("confidence", "REAL"); err != nil {
+		return err
+	}
+	if err := kg.ensureFactColumn("meta_json", "TEXT"); err != nil {
+		return err
+	}
+	if _, err := kg.db.Exec(`CREATE INDEX IF NOT EXISTS idx_facts_file_commit ON facts(file_path, commit_hash)`); err != nil {
+		return fmt.Errorf("create idx_facts_file_commit: %w", err)
+	}
+	return nil
 }
 
 // RecordFact inserts a new triple.
@@ -59,16 +85,30 @@ func (kg *KnowledgeGraph) Init() error {
 // Idempotent: if an identical active triple exists (same subject+predicate+object, no valid_until),
 // the existing ID is returned without insertion.
 func (kg *KnowledgeGraph) RecordFact(subject, predicate, object, validFrom, source string, singular bool) (string, error) {
+	return kg.RecordFactScoped(Fact{
+		Subject:   subject,
+		Predicate: predicate,
+		Object:    object,
+		ValidFrom: validFrom,
+		Source:    source,
+	}, singular)
+}
+
+// RecordFactScoped inserts a fact with optional file/commit scoping and metadata.
+func (kg *KnowledgeGraph) RecordFactScoped(fact Fact, singular bool) (string, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
-	if validFrom == "" {
-		validFrom = now
+	if fact.ValidFrom == "" {
+		fact.ValidFrom = now
 	}
 
 	// Idempotency check
 	var existingID string
 	err := kg.db.QueryRow(
-		`SELECT id FROM facts WHERE subject=? AND predicate=? AND object=? AND valid_until IS NULL`,
-		subject, predicate, object,
+		`SELECT id FROM facts
+		 WHERE subject=? AND predicate=? AND object=? AND valid_until IS NULL
+		   AND IFNULL(file_path, '') = IFNULL(?, '')
+		   AND IFNULL(commit_hash, '') = IFNULL(?, '')`,
+		fact.Subject, fact.Predicate, fact.Object, nullableString(fact.FilePath), nullableString(fact.CommitHash),
 	).Scan(&existingID)
 	if err == nil {
 		return existingID, nil
@@ -76,10 +116,13 @@ func (kg *KnowledgeGraph) RecordFact(subject, predicate, object, validFrom, sour
 
 	// Singular: close the current active fact for this (subject, predicate)
 	if singular {
-		_, err = kg.db.Exec(
-			`UPDATE facts SET valid_until=? WHERE subject=? AND predicate=? AND valid_until IS NULL`,
-			now, subject, predicate,
-		)
+		query := `UPDATE facts SET valid_until=? WHERE subject=? AND predicate=? AND valid_until IS NULL`
+		args := []any{now, fact.Subject, fact.Predicate}
+		if fact.FilePath != "" || fact.CommitHash != "" {
+			query += ` AND IFNULL(file_path, '') = IFNULL(?, '') AND IFNULL(commit_hash, '') = IFNULL(?, '')`
+			args = append(args, nullableString(fact.FilePath), nullableString(fact.CommitHash))
+		}
+		_, err = kg.db.Exec(query, args...)
 		if err != nil {
 			return "", fmt.Errorf("expire old singular fact: %w", err)
 		}
@@ -87,14 +130,97 @@ func (kg *KnowledgeGraph) RecordFact(subject, predicate, object, validFrom, sour
 
 	id := uuid.New().String()
 	_, err = kg.db.Exec(
-		`INSERT INTO facts (id, subject, predicate, object, valid_from, valid_until, source, created_at)
-		 VALUES (?, ?, ?, ?, ?, NULL, ?, ?)`,
-		id, subject, predicate, object, validFrom, source, now,
+		`INSERT INTO facts (id, subject, predicate, object, valid_from, valid_until, source, file_path, commit_hash, confidence, meta_json, created_at)
+		 VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)`,
+		id,
+		fact.Subject,
+		fact.Predicate,
+		fact.Object,
+		fact.ValidFrom,
+		nullableString(fact.Source),
+		nullableString(fact.FilePath),
+		nullableString(fact.CommitHash),
+		nullableFloat64(fact.Confidence),
+		nullableString(fact.MetaJSON),
+		now,
 	)
 	if err != nil {
 		return "", fmt.Errorf("insert fact: %w", err)
 	}
 	return id, nil
+}
+
+// ExpireFactsByScope closes currently active facts for an exact file path and commit hash.
+func (kg *KnowledgeGraph) ExpireFactsByScope(filePath, commitHash string) (int64, error) {
+	if strings.TrimSpace(filePath) == "" {
+		return 0, fmt.Errorf("file_path is required")
+	}
+	if strings.TrimSpace(commitHash) == "" {
+		return 0, fmt.Errorf("commit_hash is required")
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	res, err := kg.db.Exec(
+		`UPDATE facts
+		 SET valid_until=?
+		 WHERE valid_until IS NULL
+		   AND file_path=?
+		   AND commit_hash=?`,
+		now, filePath, commitHash,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("expire facts by scope: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("rows affected: %w", err)
+	}
+	return rows, nil
+}
+
+// ExpireActiveFactsByFile closes currently active facts for a file path.
+func (kg *KnowledgeGraph) ExpireActiveFactsByFile(filePath string) (int64, error) {
+	if strings.TrimSpace(filePath) == "" {
+		return 0, fmt.Errorf("file_path is required")
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	res, err := kg.db.Exec(
+		`UPDATE facts
+		 SET valid_until=?
+		 WHERE valid_until IS NULL
+		   AND file_path=?`,
+		now, filePath,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("expire facts by file: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("rows affected: %w", err)
+	}
+	return rows, nil
+}
+
+// ExpireActiveFactsByPrefix closes active facts whose file_path starts with prefix.
+func (kg *KnowledgeGraph) ExpireActiveFactsByPrefix(prefix string) (int64, error) {
+	if strings.TrimSpace(prefix) == "" {
+		return 0, fmt.Errorf("prefix is required")
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	res, err := kg.db.Exec(
+		`UPDATE facts
+		 SET valid_until=?
+		 WHERE valid_until IS NULL
+		   AND file_path LIKE ?`,
+		now, prefix+"%",
+	)
+	if err != nil {
+		return 0, fmt.Errorf("expire facts by prefix: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("rows affected: %w", err)
+	}
+	return rows, nil
 }
 
 // ExpireFact sets valid_until on the fact with the given ID.
@@ -123,7 +249,7 @@ func (kg *KnowledgeGraph) QueryEntity(entity, asOf string) ([]Fact, error) {
 
 	if asOf == "" {
 		rows, err = kg.db.Query(
-			`SELECT id, subject, predicate, object, valid_from, valid_until, source, created_at
+			`SELECT id, subject, predicate, object, valid_from, valid_until, source, file_path, commit_hash, confidence, meta_json, created_at
 			 FROM facts
 			 WHERE (subject=? OR object=?) AND valid_until IS NULL
 			 ORDER BY created_at DESC`,
@@ -131,7 +257,7 @@ func (kg *KnowledgeGraph) QueryEntity(entity, asOf string) ([]Fact, error) {
 		)
 	} else {
 		rows, err = kg.db.Query(
-			`SELECT id, subject, predicate, object, valid_from, valid_until, source, created_at
+			`SELECT id, subject, predicate, object, valid_from, valid_until, source, file_path, commit_hash, confidence, meta_json, created_at
 			 FROM facts
 			 WHERE (subject=? OR object=?)
 			   AND (valid_from IS NULL OR valid_from <= ?)
@@ -150,7 +276,7 @@ func (kg *KnowledgeGraph) QueryEntity(entity, asOf string) ([]Fact, error) {
 // History returns all facts (active and expired) for an entity, ordered oldest first.
 func (kg *KnowledgeGraph) History(entity string) ([]Fact, error) {
 	rows, err := kg.db.Query(
-		`SELECT id, subject, predicate, object, valid_from, valid_until, source, created_at
+		`SELECT id, subject, predicate, object, valid_from, valid_until, source, file_path, commit_hash, confidence, meta_json, created_at
 		 FROM facts
 		 WHERE subject=? OR object=?
 		 ORDER BY created_at ASC`,
@@ -203,6 +329,82 @@ func (kg *KnowledgeGraph) Stats() (KGStats, error) {
 	return stats, nil
 }
 
+// ArchitectureSummary returns top-level local packages and their depends_on edges.
+func (kg *KnowledgeGraph) ArchitectureSummary(project string, maxPackages, maxDeps int) ([]PackageDependency, error) {
+	if maxPackages <= 0 {
+		maxPackages = 6
+	}
+	if maxDeps <= 0 {
+		maxDeps = 8
+	}
+	rows, err := kg.db.Query(
+		`SELECT subject, object
+		 FROM facts
+		 WHERE predicate=? AND valid_until IS NULL
+		 ORDER BY subject ASC, object ASC`,
+		PredicateDependsOn,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("architecture query: %w", err)
+	}
+	defer rows.Close()
+
+	edges := map[string]map[string]struct{}{}
+	for rows.Next() {
+		var subject, object string
+		if err := rows.Scan(&subject, &object); err != nil {
+			return nil, fmt.Errorf("architecture scan: %w", err)
+		}
+		top := topLevelFromPackageID(subject, project)
+		if top == "" {
+			continue
+		}
+		if _, ok := edges[top]; !ok {
+			edges[top] = map[string]struct{}{}
+		}
+		dep := compactDependencyLabel(object, project)
+		if dep == "" || dep == top {
+			continue
+		}
+		edges[top][dep] = struct{}{}
+	}
+
+	type scoreRow struct {
+		pkg  string
+		deps []string
+	}
+	var scored []scoreRow
+	for pkg, depSet := range edges {
+		deps := make([]string, 0, len(depSet))
+		for d := range depSet {
+			deps = append(deps, d)
+		}
+		sort.Strings(deps)
+		if len(deps) > maxDeps {
+			deps = deps[:maxDeps]
+		}
+		scored = append(scored, scoreRow{pkg: pkg, deps: deps})
+	}
+	sort.Slice(scored, func(i, j int) bool {
+		if len(scored[i].deps) != len(scored[j].deps) {
+			return len(scored[i].deps) > len(scored[j].deps)
+		}
+		return scored[i].pkg < scored[j].pkg
+	})
+	if len(scored) > maxPackages {
+		scored = scored[:maxPackages]
+	}
+
+	out := make([]PackageDependency, 0, len(scored))
+	for _, row := range scored {
+		out = append(out, PackageDependency{
+			Package:   row.pkg,
+			DependsOn: row.deps,
+		})
+	}
+	return out, nil
+}
+
 func scanFacts(rows *sql.Rows) ([]Fact, error) {
 	var facts []Fact
 	for rows.Next() {
@@ -210,14 +412,104 @@ func scanFacts(rows *sql.Rows) ([]Fact, error) {
 		var validUntil sql.NullString
 		var validFrom sql.NullString
 		var source sql.NullString
-		if err := rows.Scan(&f.ID, &f.Subject, &f.Predicate, &f.Object,
-			&validFrom, &validUntil, &source, &f.CreatedAt); err != nil {
+		var filePath sql.NullString
+		var commitHash sql.NullString
+		var confidence sql.NullFloat64
+		var metaJSON sql.NullString
+		if err := rows.Scan(
+			&f.ID, &f.Subject, &f.Predicate, &f.Object,
+			&validFrom, &validUntil, &source, &filePath, &commitHash, &confidence, &metaJSON, &f.CreatedAt,
+		); err != nil {
 			return nil, err
 		}
 		f.ValidFrom = validFrom.String
 		f.ValidUntil = validUntil.String
 		f.Source = source.String
+		f.FilePath = filePath.String
+		f.CommitHash = commitHash.String
+		if confidence.Valid {
+			f.Confidence = confidence.Float64
+		}
+		f.MetaJSON = metaJSON.String
 		facts = append(facts, f)
 	}
 	return facts, rows.Err()
+}
+
+func (kg *KnowledgeGraph) ensureFactColumn(name, sqlType string) error {
+	rows, err := kg.db.Query(`PRAGMA table_info(facts)`)
+	if err != nil {
+		return fmt.Errorf("inspect facts schema: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var colName string
+		var colType string
+		var notNull int
+		var defaultValue any
+		var pk int
+		if err := rows.Scan(&cid, &colName, &colType, &notNull, &defaultValue, &pk); err != nil {
+			return fmt.Errorf("scan table_info: %w", err)
+		}
+		if colName == name {
+			return nil
+		}
+	}
+	if _, err := kg.db.Exec(fmt.Sprintf(`ALTER TABLE facts ADD COLUMN %s %s`, name, sqlType)); err != nil {
+		return fmt.Errorf("add column %s: %w", name, err)
+	}
+	return nil
+}
+
+func nullableString(v string) any {
+	if strings.TrimSpace(v) == "" {
+		return nil
+	}
+	return v
+}
+
+func nullableFloat64(v float64) any {
+	if v == 0 {
+		return nil
+	}
+	return v
+}
+
+func topLevelFromPackageID(pkgID, project string) string {
+	pkgID = strings.TrimSpace(pkgID)
+	if pkgID == "" {
+		return ""
+	}
+	project = strings.TrimSpace(project)
+	parts := strings.Split(pkgID, "/")
+	if project != "" {
+		for i := range parts {
+			if parts[i] != project {
+				continue
+			}
+			if i+1 >= len(parts) {
+				return project
+			}
+			return parts[i+1]
+		}
+	}
+	base := path.Base(pkgID)
+	if base == "." || base == "/" {
+		return ""
+	}
+	return base
+}
+
+func compactDependencyLabel(dep, project string) string {
+	dep = strings.TrimSpace(dep)
+	if dep == "" {
+		return ""
+	}
+	top := topLevelFromPackageID(dep, project)
+	if top != "" {
+		return top
+	}
+	return dep
 }

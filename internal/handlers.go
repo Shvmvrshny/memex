@@ -220,18 +220,14 @@ func (h *Handlers) ExpandSearch(w http.ResponseWriter, r *http.Request) {
 			limit = n
 		}
 	}
+	depth := clampInt(parseIntOrDefault(r.URL.Query().Get("depth"), 1), 1, 3)
+	fanout := clampInt(parseIntOrDefault(r.URL.Query().Get("fanout"), 10), 1, 50)
+	maxNeighbors := clampInt(parseIntOrDefault(r.URL.Query().Get("max_neighbors"), 100), 1, 500)
+	predicateAllowlist := parsePredicateAllowlist(r.URL.Query().Get("predicates"))
 
-	// Walk one hop outward from entity in the KG.
-	var neighbors []string
+	neighbors := []string{}
 	if h.kg != nil {
-		facts, err := h.kg.QueryEntity(entity, "")
-		if err == nil {
-			for _, f := range facts {
-				if f.Subject == entity {
-					neighbors = append(neighbors, f.Object)
-				}
-			}
-		}
+		neighbors = h.expandNeighbors(entity, depth, fanout, maxNeighbors, predicateAllowlist)
 	}
 
 	// Build expanded query: entity name + all neighbor names.
@@ -276,8 +272,185 @@ func (h *Handlers) ExpandSearch(w http.ResponseWriter, r *http.Request) {
 		"entity":         entity,
 		"neighbors":      neighbors,
 		"expanded_query": expandedQuery,
+		"depth":          depth,
+		"fanout":         fanout,
+		"max_neighbors":  maxNeighbors,
+		"predicates":     mapKeysSorted(predicateAllowlist),
 		"memories":       merged,
 	})
+}
+
+func (h *Handlers) expandNeighbors(entity string, maxDepth, fanout, maxNeighbors int, allowlist map[string]bool) []string {
+	type candidate struct {
+		next     string
+		priority int
+	}
+	type node struct {
+		name  string
+		depth int
+	}
+	queue := []node{{name: entity, depth: 0}}
+	visited := map[string]bool{entity: true}
+	neighborsSeen := map[string]bool{}
+	var neighbors []string
+
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		if cur.depth >= maxDepth {
+			continue
+		}
+
+		facts, err := h.kg.QueryEntity(cur.name, "")
+		if err != nil {
+			continue
+		}
+		candidatesByNext := map[string]candidate{}
+		functionFileCache := map[string][]string{}
+		addCandidate := func(next string, priority int) {
+			if strings.TrimSpace(next) == "" || neighborsSeen[next] {
+				return
+			}
+			if existing, ok := candidatesByNext[next]; ok {
+				if priority < existing.priority {
+					candidatesByNext[next] = candidate{next: next, priority: priority}
+				}
+				return
+			}
+			candidatesByNext[next] = candidate{next: next, priority: priority}
+		}
+		functionFiles := func(functionID string) []string {
+			if cached, ok := functionFileCache[functionID]; ok {
+				return cached
+			}
+			var out []string
+			ffacts, err := h.kg.QueryEntity(functionID, "")
+			if err == nil {
+				for _, ff := range ffacts {
+					if ff.Predicate == PredicateContainsFunction && ff.Object == functionID {
+						out = append(out, ff.Subject)
+					}
+				}
+			}
+			functionFileCache[functionID] = out
+			return out
+		}
+		addedThisNode := 0
+		for _, f := range facts {
+			next := ""
+			priority := 99
+			reverseCall := false
+			switch {
+			case f.Object == cur.name && f.Predicate == PredicateContainsFunction && allowlist[PredicateContainsFunction]:
+				// Reverse traversal on contains lets function/package entities map back to file anchors.
+				next = f.Subject
+				priority = 0
+			case f.Object == cur.name && f.Predicate == PredicateTestOf && allowlist[PredicateTestOf]:
+				// Reverse traversal on test_of lets source files map to their test files.
+				next = f.Subject
+				priority = 0
+			case f.Object == cur.name && f.Predicate == PredicateCalls && allowlist[PredicateCalls]:
+				// Reverse traversal on calls lets retrieval surface callers, not only callees.
+				next = f.Subject
+				priority = 1
+				reverseCall = true
+			case f.Subject == cur.name && allowlist[f.Predicate]:
+				next = f.Object
+				priority = 2
+			default:
+				continue
+			}
+			addCandidate(next, priority)
+			if reverseCall && strings.Contains(next, "::") {
+				for _, file := range functionFiles(next) {
+					addCandidate(file, priority)
+				}
+			}
+		}
+
+		candidates := make([]candidate, 0, len(candidatesByNext))
+		for _, c := range candidatesByNext {
+			candidates = append(candidates, c)
+		}
+		sort.Slice(candidates, func(i, j int) bool {
+			if candidates[i].priority != candidates[j].priority {
+				return candidates[i].priority < candidates[j].priority
+			}
+			return candidates[i].next < candidates[j].next
+		})
+
+		for _, c := range candidates {
+			neighborsSeen[c.next] = true
+			neighbors = append(neighbors, c.next)
+			if len(neighbors) >= maxNeighbors {
+				return neighbors
+			}
+			addedThisNode++
+			if !visited[c.next] {
+				visited[c.next] = true
+				queue = append(queue, node{name: c.next, depth: cur.depth + 1})
+			}
+			if addedThisNode >= fanout {
+				break
+			}
+		}
+	}
+	return neighbors
+}
+
+func parsePredicateAllowlist(raw string) map[string]bool {
+	// Default retrieval expansion avoids unresolved edges to reduce noise.
+	allow := map[string]bool{
+		PredicateContainsFunction: true,
+		PredicateCalls:            true,
+		PredicateDependsOn:        true,
+		PredicateTestOf:           true,
+	}
+	if strings.TrimSpace(raw) == "" {
+		return allow
+	}
+	custom := map[string]bool{}
+	for _, p := range strings.Split(raw, ",") {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		custom[p] = true
+	}
+	if len(custom) == 0 {
+		return allow
+	}
+	return custom
+}
+
+func parseIntOrDefault(raw string, fallback int) int {
+	if strings.TrimSpace(raw) == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	return n
+}
+
+func clampInt(v, min, max int) int {
+	if v < min {
+		return min
+	}
+	if v > max {
+		return max
+	}
+	return v
+}
+
+func mapKeysSorted(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // FindSimilar returns the most similar memories to the given text.

@@ -45,24 +45,32 @@ type SearchResponse struct {
 
 // Fact is a temporal entity-relationship triple stored in the knowledge graph.
 type Fact struct {
-	ID         string `json:"id"`
-	Subject    string `json:"subject"`
-	Predicate  string `json:"predicate"`
-	Object     string `json:"object"`
-	ValidFrom  string `json:"valid_from,omitempty"`
-	ValidUntil string `json:"valid_until,omitempty"`
-	Source     string `json:"source,omitempty"`
-	CreatedAt  string `json:"created_at"`
+	ID         string  `json:"id"`
+	Subject    string  `json:"subject"`
+	Predicate  string  `json:"predicate"`
+	Object     string  `json:"object"`
+	ValidFrom  string  `json:"valid_from,omitempty"`
+	ValidUntil string  `json:"valid_until,omitempty"`
+	Source     string  `json:"source,omitempty"`
+	FilePath   string  `json:"file_path,omitempty"`
+	CommitHash string  `json:"commit_hash,omitempty"`
+	Confidence float64 `json:"confidence,omitempty"`
+	MetaJSON   string  `json:"meta_json,omitempty"`
+	CreatedAt  string  `json:"created_at"`
 }
 
 // RecordFactRequest is the body of POST /facts.
 type RecordFactRequest struct {
-	Subject   string `json:"subject"`
-	Predicate string `json:"predicate"`
-	Object    string `json:"object"`
-	ValidFrom string `json:"valid_from,omitempty"`
-	Source    string `json:"source,omitempty"`
-	Singular  bool   `json:"singular"`
+	Subject    string  `json:"subject"`
+	Predicate  string  `json:"predicate"`
+	Object     string  `json:"object"`
+	ValidFrom  string  `json:"valid_from,omitempty"`
+	Source     string  `json:"source,omitempty"`
+	FilePath   string  `json:"file_path,omitempty"`
+	CommitHash string  `json:"commit_hash,omitempty"`
+	Confidence float64 `json:"confidence,omitempty"`
+	MetaJSON   string  `json:"meta_json,omitempty"`
+	Singular   bool    `json:"singular"`
 }
 
 // KGStats is returned by GET /facts/stats.
@@ -72,6 +80,11 @@ type KGStats struct {
 	ExpiredFacts   int            `json:"expired_facts"`
 	EntityCount    int            `json:"entity_count"`
 	PredicateTypes map[string]int `json:"predicate_types"`
+}
+
+type PackageDependency struct {
+	Package   string   `json:"package"`
+	DependsOn []string `json:"depends_on"`
 }
 
 // ConversationTurn is one full turn from a Claude Code JSONL transcript.

@@ -94,7 +94,7 @@ func BenchmarkSessionStartHook(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		buildMemoryContext(identity, pinned, semantic)
+		buildMemoryContext(identity, pinned, semantic, nil)
 	}
 }
 
@@ -162,7 +162,7 @@ func TestBenchmarkBudgets(t *testing.T) {
 
 		start := time.Now()
 		for i := 0; i < 1000; i++ {
-			buildMemoryContext("identity text", pinned, semantic)
+			buildMemoryContext("identity text", pinned, semantic, nil)
 		}
 		avg := time.Since(start) / 1000
 		if avg > 1*time.Millisecond {

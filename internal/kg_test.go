@@ -158,3 +158,133 @@ func TestKG_Stats(t *testing.T) {
 		t.Errorf("ExpiredFacts = %d, want 1", stats.ExpiredFacts)
 	}
 }
+
+func TestKG_RecordFactScoped_PersistsScopeFields(t *testing.T) {
+	kg := newTestKG(t)
+
+	_, err := kg.RecordFactScoped(Fact{
+		Subject:    "fileA",
+		Predicate:  "contains",
+		Object:     "pkg::Fn",
+		Source:     "ast",
+		FilePath:   "internal/a.go",
+		CommitHash: "abc123",
+		Confidence: 1,
+		MetaJSON:   `{"role":"retrieval"}`,
+	}, false)
+	if err != nil {
+		t.Fatalf("RecordFactScoped: %v", err)
+	}
+
+	facts, err := kg.QueryEntity("fileA", "")
+	if err != nil {
+		t.Fatalf("QueryEntity: %v", err)
+	}
+	if len(facts) != 1 {
+		t.Fatalf("facts count = %d, want 1", len(facts))
+	}
+	got := facts[0]
+	if got.FilePath != "internal/a.go" {
+		t.Errorf("FilePath = %q, want internal/a.go", got.FilePath)
+	}
+	if got.CommitHash != "abc123" {
+		t.Errorf("CommitHash = %q, want abc123", got.CommitHash)
+	}
+	if got.MetaJSON == "" {
+		t.Error("MetaJSON should be persisted")
+	}
+}
+
+func TestKG_ExpireActiveFactsByFile(t *testing.T) {
+	kg := newTestKG(t)
+
+	_, _ = kg.RecordFactScoped(Fact{
+		Subject:    "a.go",
+		Predicate:  "contains",
+		Object:     "p::A",
+		Source:     "ast",
+		FilePath:   "internal/a.go",
+		CommitHash: "h1",
+	}, false)
+	_, _ = kg.RecordFactScoped(Fact{
+		Subject:    "b.go",
+		Predicate:  "contains",
+		Object:     "p::B",
+		Source:     "ast",
+		FilePath:   "internal/b.go",
+		CommitHash: "h1",
+	}, false)
+
+	expired, err := kg.ExpireActiveFactsByFile("internal/a.go")
+	if err != nil {
+		t.Fatalf("ExpireActiveFactsByFile: %v", err)
+	}
+	if expired != 1 {
+		t.Errorf("expired = %d, want 1", expired)
+	}
+
+	aFacts, _ := kg.QueryEntity("a.go", "")
+	if len(aFacts) != 0 {
+		t.Errorf("a.go facts should be expired, got %d", len(aFacts))
+	}
+	bFacts, _ := kg.QueryEntity("b.go", "")
+	if len(bFacts) != 1 {
+		t.Errorf("b.go facts should remain active, got %d", len(bFacts))
+	}
+}
+
+func TestKG_ArchitectureSummary(t *testing.T) {
+	kg := newTestKG(t)
+	_, _ = kg.RecordFactScoped(Fact{
+		Subject:   "github.com/shivamvarshney/memex/internal",
+		Predicate: PredicateDependsOn,
+		Object:    "github.com/shivamvarshney/memex/cmd",
+		Source:    "ast",
+	}, false)
+	_, _ = kg.RecordFactScoped(Fact{
+		Subject:   "github.com/shivamvarshney/memex/internal",
+		Predicate: PredicateDependsOn,
+		Object:    "net/http",
+		Source:    "ast",
+	}, false)
+
+	summary, err := kg.ArchitectureSummary("memex", 5, 5)
+	if err != nil {
+		t.Fatalf("ArchitectureSummary: %v", err)
+	}
+	if len(summary) == 0 {
+		t.Fatal("expected architecture summary rows, got none")
+	}
+	if summary[0].Package == "" {
+		t.Error("package label should not be empty")
+	}
+	if len(summary[0].DependsOn) == 0 {
+		t.Error("depends_on should not be empty")
+	}
+}
+
+func TestKG_ExpireActiveFactsByPrefix(t *testing.T) {
+	kg := newTestKG(t)
+	_, _ = kg.RecordFactScoped(Fact{
+		Subject:   ".worktrees/a/internal/foo.go",
+		Predicate: PredicateContainsFunction,
+		Object:    "pkg::Fn",
+		Source:    "ast",
+		FilePath:  ".worktrees/a/internal/foo.go",
+	}, false)
+	_, _ = kg.RecordFactScoped(Fact{
+		Subject:   "internal/bar.go",
+		Predicate: PredicateContainsFunction,
+		Object:    "pkg::Bar",
+		Source:    "ast",
+		FilePath:  "internal/bar.go",
+	}, false)
+
+	n, err := kg.ExpireActiveFactsByPrefix(".worktrees/")
+	if err != nil {
+		t.Fatalf("ExpireActiveFactsByPrefix: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("expired=%d, want 1", n)
+	}
+}

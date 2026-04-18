@@ -37,7 +37,7 @@ func TestBuildMemoryContext_Golden_Full(t *testing.T) {
 		{Text: "Ollama must run on host.docker.internal", MemoryType: "discovery"},
 	}
 
-	got := buildMemoryContext(identity, pinned, semantic)
+	got := buildMemoryContext(identity, pinned, semantic, nil)
 
 	if *updateGolden {
 		writeGolden(t, "session_start_full.txt", got)
@@ -53,7 +53,7 @@ func TestBuildMemoryContext_Golden_Full(t *testing.T) {
 }
 
 func TestBuildMemoryContext_Golden_IdentityOnly(t *testing.T) {
-	got := buildMemoryContext("I am Shivam. I build developer tools.", nil, nil)
+	got := buildMemoryContext("I am Shivam. I build developer tools.", nil, nil, nil)
 
 	if *updateGolden {
 		writeGolden(t, "session_start_identity_only.txt", got)
@@ -72,7 +72,7 @@ func TestBuildMemoryContext_Golden_NoIdentity(t *testing.T) {
 	pinned := []Memory{{Text: "critical preference", MemoryType: "preference"}}
 	semantic := []Memory{{Text: "use Qdrant for storage", MemoryType: "decision"}}
 
-	got := buildMemoryContext("", pinned, semantic)
+	got := buildMemoryContext("", pinned, semantic, nil)
 
 	if *updateGolden {
 		writeGolden(t, "session_start_no_identity.txt", got)
@@ -92,7 +92,7 @@ func TestBuildMemoryContext_SectionOrder_IdentityBeforePinnedBeforeContext(t *te
 	pinned := []Memory{{Text: "critical pref", MemoryType: "preference"}}
 	semantic := []Memory{{Text: "discovered fact", MemoryType: "discovery"}}
 
-	got := buildMemoryContext(identity, pinned, semantic)
+	got := buildMemoryContext(identity, pinned, semantic, nil)
 
 	idxIdentity := strings.Index(got, "[identity]")
 	idxPinned := strings.Index(got, "[pinned]")
@@ -114,7 +114,7 @@ func TestBuildMemoryContext_TokenBudget(t *testing.T) {
 		semantic[i] = Memory{Text: "some semantic context memory that is also moderately long", MemoryType: "decision"}
 	}
 
-	got := buildMemoryContext("I am Shivam.", pinned, semantic)
+	got := buildMemoryContext("I am Shivam.", pinned, semantic, nil)
 
 	const maxChars = 8000
 	if len(got) > maxChars {

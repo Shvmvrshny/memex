@@ -86,6 +86,13 @@ func RunServe() {
 		}
 		kgh.Stats(w, r)
 	})
+	mux.HandleFunc("/facts/architecture", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		kgh.Architecture(w, r)
+	})
 	mux.HandleFunc("/facts/timeline", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

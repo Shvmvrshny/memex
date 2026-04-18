@@ -137,3 +137,28 @@ func TestKGHandlers_Stats(t *testing.T) {
 		t.Errorf("TotalFacts = %d, want 1", stats.TotalFacts)
 	}
 }
+
+func TestKGHandlers_Architecture(t *testing.T) {
+	h := newTestKGHandlers(t)
+	_, _ = h.kg.RecordFactScoped(Fact{
+		Subject:   "github.com/shivamvarshney/memex/internal",
+		Predicate: PredicateDependsOn,
+		Object:    "net/http",
+		Source:    "ast",
+	}, false)
+
+	req := httptest.NewRequest(http.MethodGet, "/facts/architecture?project=memex&limit=5", nil)
+	w := httptest.NewRecorder()
+	h.Architecture(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+	var resp struct {
+		Packages []PackageDependency `json:"packages"`
+	}
+	_ = json.NewDecoder(w.Body).Decode(&resp)
+	if len(resp.Packages) == 0 {
+		t.Fatalf("expected at least one package in architecture response")
+	}
+}

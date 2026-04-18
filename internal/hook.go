@@ -202,7 +202,20 @@ func hookSessionStart() {
 		semantic = sortByTypePriority(result.Memories)
 	}
 
-	block := buildMemoryContext(identity, pinned, semantic)
+	// L3 — Architecture snapshot from KG (top-level package dependencies).
+	var architecture []PackageDependency
+	archURL := fmt.Sprintf("%s/facts/architecture?project=%s&limit=6", memexURL, url.QueryEscape(project))
+	if r, err := http.Get(archURL); err == nil {
+		defer r.Body.Close()
+		var result struct {
+			Packages []PackageDependency `json:"packages"`
+		}
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &result)
+		architecture = result.Packages
+	}
+
+	block := buildMemoryContext(identity, pinned, semantic, architecture)
 	if block == "" {
 		outputEmpty()
 		return
@@ -279,8 +292,8 @@ func sortByTypePriority(memories []Memory) []Memory {
 
 // buildMemoryContext assembles the structured <memex-memory> block.
 // Returns empty string if all layers are empty (avoids injecting a blank block).
-func buildMemoryContext(identity string, pinned []Memory, semantic []Memory) string {
-	if identity == "" && len(pinned) == 0 && len(semantic) == 0 {
+func buildMemoryContext(identity string, pinned []Memory, semantic []Memory, architecture []PackageDependency) string {
+	if identity == "" && len(pinned) == 0 && len(semantic) == 0 && len(architecture) == 0 {
 		return ""
 	}
 
@@ -305,6 +318,18 @@ func buildMemoryContext(identity string, pinned []Memory, semantic []Memory) str
 		sb.WriteString("[context]\n")
 		for _, m := range semantic {
 			sb.WriteString(fmt.Sprintf("- (%s) %s\n", m.MemoryType, m.Text))
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(architecture) > 0 {
+		sb.WriteString("[architecture]\n")
+		for _, pkg := range architecture {
+			if len(pkg.DependsOn) == 0 {
+				sb.WriteString(fmt.Sprintf("- %s\n", pkg.Package))
+				continue
+			}
+			sb.WriteString(fmt.Sprintf("- %s -> %s\n", pkg.Package, strings.Join(pkg.DependsOn, ", ")))
 		}
 		sb.WriteString("\n")
 	}

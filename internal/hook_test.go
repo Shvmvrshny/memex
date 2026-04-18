@@ -36,7 +36,7 @@ func TestBuildMemoryContext_AllLayers(t *testing.T) {
 		{Text: "Ollama must run on host", MemoryType: "discovery"},
 	}
 
-	got := buildMemoryContext(identity, pinned, semantic)
+	got := buildMemoryContext(identity, pinned, semantic, nil)
 
 	if !strings.Contains(got, "[identity]") {
 		t.Error("missing [identity] section")
@@ -61,7 +61,7 @@ func TestBuildMemoryContext_AllLayers(t *testing.T) {
 func TestBuildMemoryContext_NoIdentity(t *testing.T) {
 	pinned := []Memory{{Text: "a pinned fact", MemoryType: "decision"}}
 
-	got := buildMemoryContext("", pinned, nil)
+	got := buildMemoryContext("", pinned, nil, nil)
 
 	if strings.Contains(got, "[identity]") {
 		t.Error("[identity] section should be absent when identity is empty")
@@ -72,7 +72,7 @@ func TestBuildMemoryContext_NoIdentity(t *testing.T) {
 }
 
 func TestBuildMemoryContext_Empty(t *testing.T) {
-	got := buildMemoryContext("", nil, nil)
+	got := buildMemoryContext("", nil, nil, nil)
 	if got != "" {
 		t.Errorf("all-empty buildMemoryContext = %q, want empty string", got)
 	}
@@ -112,7 +112,7 @@ func TestHookSessionStart_BuildsThreeLayers(t *testing.T) {
 		t.Errorf("expected decision first after sort, got %q", sorted[0].MemoryType)
 	}
 
-	got := buildMemoryContext(identity, pinned, sorted)
+	got := buildMemoryContext(identity, pinned, sorted, nil)
 
 	idxIdentity := strings.Index(got, "[identity]")
 	idxPinned := strings.Index(got, "[pinned]")
