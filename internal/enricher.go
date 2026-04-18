@@ -261,7 +261,7 @@ func (e *Enricher) enrich(ctx context.Context, functionID, project, commitHash s
 		Topic:      functionID,
 		MemoryType: "code_node",
 		Source:     "llm-enrichment",
-		Importance: 0.7,
+		Importance: 0.85,
 		Tags:       tags,
 	})
 	return err
