@@ -6,8 +6,11 @@ services:
     environment:
       - QDRANT_URL=http://qdrant:6333
       - OLLAMA_URL=http://host.docker.internal:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2}
+      - REPO_ROOT=/repo
     volumes:
       - ~/.memex:/root/.memex
+      - .:/repo:ro
     depends_on:
       qdrant:
         condition: service_healthy
