@@ -1,2 +1,4 @@
 /memex
 .worktrees/
+node_modules/
+ui/
